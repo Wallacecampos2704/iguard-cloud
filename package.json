@@ -1,0 +1,15 @@
+{
+  "name": "iguard-cloud",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace=@iguard/web run dev",
+    "build:web": "npm --workspace=@iguard/web run build",
+    "start:web": "npm --workspace=@iguard/web run start",
+    "dev:api": "npm --workspace=@iguard/api run start:dev",
+    "build:api": "npm --workspace=@iguard/api run build",
+    "start:api": "npm --workspace=@iguard/api run start:prod"
+  }
+}
