@@ -1,0 +1,273 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum AccountStatus {
+  TRIAL
+  ACTIVE
+  TRIAL_EXPIRED
+  BLOCKED
+  CANCELED
+}
+
+enum DeviceStatus {
+  ONLINE
+  WARNING
+  OFFLINE
+  UNKNOWN
+  MAINTENANCE
+}
+
+enum DeviceType {
+  ROUTER
+  MIKROTIK
+  CAMERA_IP
+  DVR_NVR
+  FACIAL
+  ACCESS_CONTROLLER
+  SERVER
+  INTERNET_LINK
+  SIP_GATEWAY
+  ALARM
+  OTHER
+}
+
+enum CheckType {
+  HTTP
+  HTTPS
+  TCP_PORT
+  PING
+  RTSP
+  SIP
+  DNS
+  WIREGUARD
+  MANUAL
+}
+
+enum IncidentSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum IncidentStatus {
+  OPEN
+  ANALYZING
+  RESOLVED
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  BLOCKED
+  CANCELED
+}
+
+enum PaymentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELED
+  REFUNDED
+}
+
+model Organization {
+  id          String        @id @default(uuid())
+  name        String
+  type        String        @default("INTEGRATOR")
+  document    String?
+  phone       String?
+  city        String?
+  state       String?
+  plan        String        @default("trial")
+  deviceLimit Int           @default(3)
+  status      AccountStatus @default(TRIAL)
+  trialEndsAt DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  customers            Customer[]
+  sites                Site[]
+  devices              Device[]
+  checkResults         CheckResult[]
+  incidents            Incident[]
+  notificationContacts NotificationContact[]
+  alertTemplates       AlertTemplate[]
+  subscriptions        Subscription[]
+  payments             Payment[]
+}
+
+model Customer {
+  id              String   @id @default(uuid())
+  organizationId  String
+  name            String
+  document        String?
+  responsibleName String?
+  phone           String?
+  email           String?
+  notes           String?
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sites        Site[]
+  devices      Device[]
+  incidents    Incident[]
+}
+
+model Site {
+  id             String   @id @default(uuid())
+  organizationId String
+  customerId     String
+  name           String
+  type           String?
+  address        String?
+  city           String?
+  state          String?
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  devices      Device[]
+  incidents    Incident[]
+}
+
+model Device {
+  id                  String       @id @default(uuid())
+  organizationId       String
+  customerId           String
+  siteId               String
+  name                 String
+  deviceType           DeviceType   @default(OTHER)
+  manufacturer         String?
+  model                String?
+  host                 String
+  port                 Int?
+  checkType            CheckType    @default(HTTP)
+  checkIntervalSeconds Int          @default(60)
+  currentStatus        DeviceStatus @default(UNKNOWN)
+  lastCheckedAt        DateTime?
+  responseTimeMs       Int?
+  monitoringEnabled    Boolean      @default(true)
+  notes                String?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  site         Site          @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  checkResults CheckResult[]
+  incidents    Incident[]
+}
+
+model CheckResult {
+  id             String       @id @default(uuid())
+  organizationId String
+  deviceId       String
+  status         DeviceStatus
+  responseTimeMs Int?
+  errorMessage   String?
+  checkType      CheckType
+  source         String       @default("SIMULATED")
+  rawPayload     Json?
+  checkedAt      DateTime     @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  device       Device       @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+}
+
+model Incident {
+  id             String           @id @default(uuid())
+  organizationId String
+  customerId     String?
+  siteId         String?
+  deviceId       String?
+  title          String
+  severity       IncidentSeverity @default(MEDIUM)
+  status         IncidentStatus   @default(OPEN)
+  probableCause  String?
+  description    String?
+  openedAt       DateTime         @default(now())
+  resolvedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer?    @relation(fields: [customerId], references: [id])
+  site         Site?        @relation(fields: [siteId], references: [id])
+  device       Device?      @relation(fields: [deviceId], references: [id])
+}
+
+model NotificationContact {
+  id                    String   @id @default(uuid())
+  organizationId         String
+  name                  String
+  role                  String?
+  whatsapp              String?
+  email                 String?
+  telegramChatId        String?
+  receivesCriticalAlert Boolean  @default(true)
+  receivesRecoveryAlert Boolean  @default(true)
+  receivesBillingAlert  Boolean  @default(false)
+  active                Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model AlertTemplate {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  audience       String
+  template       String
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model Subscription {
+  id                       String             @id @default(uuid())
+  organizationId            String
+  plan                     String
+  status                   SubscriptionStatus @default(TRIAL)
+  mercadoPagoSubscriptionId String?
+  trialStartsAt             DateTime?
+  trialEndsAt               DateTime?
+  currentPeriodStartsAt     DateTime?
+  currentPeriodEndsAt       DateTime?
+  createdAt                 DateTime           @default(now())
+  updatedAt                 DateTime           @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  payments     Payment[]
+}
+
+model Payment {
+  id                   String        @id @default(uuid())
+  organizationId        String
+  subscriptionId        String?
+  amount               Decimal       @db.Decimal(10, 2)
+  currency             String        @default("BRL")
+  status               PaymentStatus @default(PENDING)
+  mercadoPagoPaymentId String?
+  paymentMethod        String?
+  paidAt               DateTime?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id])
+}
