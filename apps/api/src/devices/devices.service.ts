@@ -4,10 +4,10 @@ import { PrismaService } from '../prisma/prisma.service';
 
 type CreateDeviceInput = {
   name: string;
-  type: string;
+  deviceType: string;
   host: string;
   port?: number;
-  status?: string;
+  currentStatus?: string;
 };
 
 @Injectable()
@@ -17,11 +17,7 @@ export class DevicesService {
   async create(input: CreateDeviceInput) {
     const site = await this.prisma.site.findFirst({
       orderBy: { createdAt: 'asc' },
-      select: {
-        id: true,
-        organizationId: true,
-        customerId: true,
-      },
+      select: { id: true, organizationId: true, customerId: true },
     });
 
     if (!site) {
@@ -30,16 +26,22 @@ export class DevicesService {
       );
     }
 
-    const deviceType = input.type as DeviceType;
+    const deviceType = input.deviceType as DeviceType;
     if (!Object.values(DeviceType).includes(deviceType)) {
-      throw new BadRequestException(`Tipo de dispositivo inválido: ${input.type}`);
+      throw new BadRequestException(
+        `Tipo de dispositivo inválido: ${input.deviceType}`,
+      );
     }
 
     const requestedStatus =
-      input.status === 'ATTENTION' ? DeviceStatus.WARNING : input.status;
+      input.currentStatus === 'ATTENTION'
+        ? DeviceStatus.WARNING
+        : input.currentStatus;
     const currentStatus = (requestedStatus ?? DeviceStatus.UNKNOWN) as DeviceStatus;
     if (!Object.values(DeviceStatus).includes(currentStatus)) {
-      throw new BadRequestException(`Status de dispositivo inválido: ${input.status}`);
+      throw new BadRequestException(
+        `Status de dispositivo inválido: ${input.currentStatus}`,
+      );
     }
 
     return this.prisma.device.create({
@@ -68,16 +70,8 @@ export class DevicesService {
         currentStatus: true,
         responseTimeMs: true,
         lastCheckedAt: true,
-        customer: {
-          select: {
-            name: true,
-          },
-        },
-        site: {
-          select: {
-            name: true,
-          },
-        },
+        customer: { select: { name: true } },
+        site: { select: { name: true } },
       },
     });
 

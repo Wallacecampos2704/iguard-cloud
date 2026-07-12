@@ -3,10 +3,10 @@ import { DevicesService } from './devices.service';
 
 type CreateDeviceBody = {
   name: string;
-  type: string;
+  deviceType: string;
   host: string;
   port?: number;
-  status?: string;
+  currentStatus?: string;
 };
 
 @Controller('devices')

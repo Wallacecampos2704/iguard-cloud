@@ -3,8 +3,6 @@ import {
   DeviceStatus,
   IncidentSeverity,
   IncidentStatus,
-  PaymentStatus,
-  SubscriptionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -25,11 +23,6 @@ export class DashboardService {
       openIncidents,
       criticalIncidents,
       notificationContacts,
-      activeSubscriptions,
-      trialSubscriptions,
-      pendingPayments,
-      approvedPayments,
-      approvedAmount,
     ] = await this.prisma.$transaction([
       this.prisma.organization.count(),
       this.prisma.customer.count(),
@@ -47,14 +40,6 @@ export class DashboardService {
         },
       }),
       this.prisma.notificationContact.count(),
-      this.prisma.subscription.count({ where: { status: SubscriptionStatus.ACTIVE } }),
-      this.prisma.subscription.count({ where: { status: SubscriptionStatus.TRIAL } }),
-      this.prisma.payment.count({ where: { status: PaymentStatus.PENDING } }),
-      this.prisma.payment.count({ where: { status: PaymentStatus.APPROVED } }),
-      this.prisma.payment.aggregate({
-        where: { status: PaymentStatus.APPROVED },
-        _sum: { amount: true },
-      }),
     ]);
 
     const platformHealthScore =
@@ -77,11 +62,11 @@ export class DashboardService {
       openIncidents,
       criticalIncidents,
       notificationContacts,
-      activeSubscriptions,
-      trialSubscriptions,
-      pendingPayments,
-      approvedPayments,
-      totalApprovedAmount: Number(approvedAmount._sum.amount ?? 0),
+      activeSubscriptions: 0,
+      trialSubscriptions: 0,
+      pendingPayments: 0,
+      approvedPayments: 0,
+      totalApprovedAmount: 0,
       platformHealthScore,
     };
   }
