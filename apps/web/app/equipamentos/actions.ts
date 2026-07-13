@@ -8,6 +8,8 @@ export type CreateDeviceResult = {
   message: string;
 };
 
+export type CheckDeviceResult = CreateDeviceResult;
+
 const DEVICE_TYPES = [
   "HTTP",
   "TCP",
@@ -85,6 +87,28 @@ export async function createDevice(
     return {
       success: false,
       message: "Não foi possível conectar à API. Tente novamente.",
+    };
+  }
+}
+
+export async function checkDevice(id: string): Promise<CheckDeviceResult> {
+  try {
+    const response = await fetch(`${DEVICES_URL}/${encodeURIComponent(id)}/check`, {
+      method: "POST",
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      return { success: false, message: getApiErrorMessage(payload) };
+    }
+
+    revalidatePath("/equipamentos");
+    revalidatePath("/dashboard");
+    return { success: true, message: "Verificação concluída e status atualizado." };
+  } catch {
+    return {
+      success: false,
+      message: "Não foi possível conectar à API para verificar o equipamento.",
     };
   }
 }

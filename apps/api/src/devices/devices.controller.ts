@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { DevicesService } from './devices.service';
 
 type CreateDeviceBody = {
@@ -21,5 +21,10 @@ export class DevicesController {
   @Post()
   create(@Body() body: CreateDeviceBody) {
     return this.devicesService.create(body);
+  }
+
+  @Post(':id/check')
+  check(@Param('id') id: string) {
+    return this.devicesService.check(id);
   }
 }

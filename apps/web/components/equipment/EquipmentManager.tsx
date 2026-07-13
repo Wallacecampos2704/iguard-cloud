@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createDevice } from "@/app/equipamentos/actions";
+import { checkDevice, createDevice } from "@/app/equipamentos/actions";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -42,6 +42,7 @@ export function EquipmentManager({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const [isPending, startTransition] = useTransition();
+  const [checkingDeviceId, setCheckingDeviceId] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   useEffect(() => {
@@ -78,6 +79,21 @@ export function EquipmentManager({
     });
   }
 
+  function handleCheck(deviceId: string) {
+    setMessage(null);
+    setCheckingDeviceId(deviceId);
+
+    startTransition(async () => {
+      const result = await checkDevice(deviceId);
+      setMessage({ type: result.success ? "success" : "error", text: result.message });
+      setCheckingDeviceId(null);
+
+      if (result.success) {
+        router.refresh();
+      }
+    });
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -105,12 +121,22 @@ export function EquipmentManager({
           <Card className="text-center text-sm text-muted">Nenhum equipamento cadastrado.</Card>
         ) : devices.map((equipment) => (
           <Card key={equipment.id} className="p-6">
-            <div className="mb-4 flex items-start justify-between gap-4">
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0 flex-1">
                 <h3 className="truncate font-semibold">{equipment.name}</h3>
                 <p className="mt-1 text-sm text-muted">{equipment.customerName} · {equipment.siteName}</p>
               </div>
-              <Badge variant={statusVariant[equipment.currentStatus]}>{statusLabel[equipment.currentStatus]}</Badge>
+              <div className="flex items-center gap-3">
+                <Badge variant={statusVariant[equipment.currentStatus]}>{statusLabel[equipment.currentStatus]}</Badge>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => handleCheck(equipment.id)}
+                  className={isPending ? "pointer-events-none opacity-60" : ""}
+                >
+                  {checkingDeviceId === equipment.id ? "Verificando..." : "Verificar agora"}
+                </Button>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
               <div><p className="mb-1 text-xs text-muted">Tipo</p><p className="text-sm font-medium">{equipment.deviceType.replaceAll("_", " ")}</p></div>
