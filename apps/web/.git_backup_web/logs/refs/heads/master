@@ -1,0 +1,7 @@
+0000000000000000000000000000000000000000 4221c32371b46f7b307aa04118ea32190a6e1f35 Wallace Campos <camposrhbauru@gmail.com> 1780105121 -0300	commit (initial): Initial commit from Create Next App
+4221c32371b46f7b307aa04118ea32190a6e1f35 e5c1eded3b26bbd76d6d1b8e38f1f462dfa75feb Wallace Campos <camposrhbauru@gmail.com> 1781224771 -0300	commit: primeira versao visual do iguard com landing e dashboard
+e5c1eded3b26bbd76d6d1b8e38f1f462dfa75feb 748d5eaf627158d6fdc5a31d054d486d9e07ed7f Wallace Campos <camposrhbauru@gmail.com> 1781226767 -0300	commit: cria paginas estaticas principais do saas iguard
+748d5eaf627158d6fdc5a31d054d486d9e07ed7f fcbb7044ff093d9581c53fca5bbcb456bb345968 Wallace Campos <camposrhbauru@gmail.com> 1781227614 -0300	commit: refina paginas comerciais e operacionais do iguard
+fcbb7044ff093d9581c53fca5bbcb456bb345968 496caf1579ff90d00a3718f18e21c3cc9e8b8a12 Wallace Campos <camposrhbauru@gmail.com> 1781362192 -0300	commit: conecta dashboard web ao backend
+496caf1579ff90d00a3718f18e21c3cc9e8b8a12 9989d04192c6ea4e1f73a1d2f26e86287589ef11 Wallace Campos <camposrhbauru@gmail.com> 1781363436 -0300	commit: conecta tabela de equipamentos ao backend
+9989d04192c6ea4e1f73a1d2f26e86287589ef11 d2a82fbc49ebf61050f611e41e419e92afdb16a2 Wallace Campos <camposrhbauru@gmail.com> 1783904453 -0300	commit: cria cadastro de equipamentos no frontend
