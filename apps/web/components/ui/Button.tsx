@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-type ButtonVariant = "primary" | "secondary" | "ghost" | "demo";
+type ButtonVariant = "primary" | "secondary" | "ghost" | "demo" | "danger";
 type ButtonSize = "sm" | "md" | "lg";
 
 interface ButtonProps {
@@ -11,6 +11,7 @@ interface ButtonProps {
   className?: string;
   onClick?: () => void;
   type?: "button" | "submit";
+  disabled?: boolean;
 }
 
 const variantStyles: Record<ButtonVariant, string> = {
@@ -20,6 +21,7 @@ const variantStyles: Record<ButtonVariant, string> = {
     "border border-border bg-surface-elevated text-foreground hover:border-accent/50 hover:bg-surface",
   ghost: "text-muted hover:text-foreground hover:bg-surface-elevated",
   demo: "border border-accent/40 bg-accent/5 text-accent font-semibold hover:border-accent/70 hover:bg-accent/10",
+  danger: "border border-danger/30 bg-danger/10 text-danger font-semibold hover:bg-danger/20",
 };
 
 const sizeStyles: Record<ButtonSize, string> = {
@@ -36,6 +38,7 @@ export function Button({
   className = "",
   onClick,
   type = "button",
+  disabled = false,
 }: ButtonProps) {
   const classes = `inline-flex items-center justify-center gap-2 transition-all duration-200 ${variantStyles[variant]} ${sizeStyles[size]} ${className}`;
 
@@ -48,7 +51,12 @@ export function Button({
   }
 
   return (
-    <button type={type} onClick={onClick} className={classes}>
+    <button
+      type={type}
+      onClick={onClick}
+      className={`${classes} disabled:cursor-not-allowed disabled:opacity-50`}
+      disabled={disabled}
+    >
       {children}
     </button>
   );

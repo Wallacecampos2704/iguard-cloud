@@ -1,13 +1,24 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common';
 import { DevicesService } from './devices.service';
 
 type CreateDeviceBody = {
   name: string;
   deviceType: string;
   host: string;
-  port?: number;
+  port?: number | null;
   currentStatus?: string;
+  checkType?: string;
 };
+
+type UpdateDeviceBody = Partial<CreateDeviceBody>;
 
 @Controller('devices')
 export class DevicesController {
@@ -26,5 +37,15 @@ export class DevicesController {
   @Post(':id/check')
   check(@Param('id') id: string) {
     return this.devicesService.check(id);
+  }
+
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() body: UpdateDeviceBody) {
+    return this.devicesService.update(id, body);
+  }
+
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.devicesService.remove(id);
   }
 }

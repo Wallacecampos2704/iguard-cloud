@@ -11,6 +11,7 @@ export interface DashboardDevice {
   deviceType: string;
   host: string;
   port: number | null;
+  checkType: string;
   currentStatus: ApiDeviceStatus;
   responseTimeMs: number | null;
   lastCheckedAt: string | null;
@@ -46,6 +47,7 @@ function toDevice(value: Partial<DashboardDevice>): DashboardDevice | null {
     deviceType: typeof value.deviceType === "string" ? value.deviceType : "OTHER",
     host: typeof value.host === "string" ? value.host : "",
     port: typeof value.port === "number" ? value.port : null,
+    checkType: typeof value.checkType === "string" ? value.checkType : "HTTP",
     currentStatus: isDeviceStatus(value.currentStatus)
       ? value.currentStatus
       : "UNKNOWN",
