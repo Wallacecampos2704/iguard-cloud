@@ -482,7 +482,6 @@ export class DevicesService {
 
   async checkAll() {
     const devices = await this.prisma.device.findMany({
-      where: { monitoringEnabled: true },
       select: {
         id: true,
         organizationId: true,
@@ -503,8 +502,38 @@ export class DevicesService {
         try {
           const result = await this.runDeviceCheck(devices[index], 'BATCH');
           results[index] = result.currentStatus;
-        } catch {
-          results[index] = null;
+        } catch (error) {
+          try {
+            const checkedAt = new Date();
+            const errorMessage =
+              error instanceof Error ? error.message : 'Falha na verificação';
+            await this.prisma.$transaction([
+              this.prisma.device.update({
+                where: { id: devices[index].id },
+                data: {
+                  currentStatus: DeviceStatus.OFFLINE,
+                  lastCheckedAt: checkedAt,
+                  responseTimeMs: null,
+                },
+              }),
+              this.prisma.checkResult.create({
+                data: {
+                  organizationId: devices[index].organizationId,
+                  deviceId: devices[index].id,
+                  status: DeviceStatus.OFFLINE,
+                  responseTimeMs: null,
+                  errorMessage,
+                  checkType: devices[index].checkType,
+                  source: 'BATCH',
+                  rawPayload: { batchError: true },
+                  checkedAt,
+                },
+              }),
+            ]);
+            results[index] = DeviceStatus.OFFLINE;
+          } catch {
+            results[index] = null;
+          }
         }
       }
     };
@@ -512,14 +541,25 @@ export class DevicesService {
     const concurrency = Math.min(5, devices.length);
     await Promise.all(Array.from({ length: concurrency }, () => worker()));
 
+    const checked = results.filter((status) => status !== null).length;
+    const online = results.filter(
+      (status) => status === DeviceStatus.ONLINE,
+    ).length;
+    const offline = results.filter(
+      (status) => status === DeviceStatus.OFFLINE,
+    ).length;
+    const warning = results.filter(
+      (status) => status === DeviceStatus.WARNING,
+    ).length;
+
     return {
-      checked: results.filter((status) => status !== null).length,
-      online: results.filter((status) => status === DeviceStatus.ONLINE).length,
-      offline: results.filter((status) => status === DeviceStatus.OFFLINE)
-        .length,
-      warning: results.filter((status) => status === DeviceStatus.WARNING)
-        .length,
-      failed: results.filter((status) => status === null).length,
+      success: true,
+      total: devices.length,
+      checked,
+      online,
+      offline,
+      warning,
+      message: `${checked} de ${devices.length} equipamentos verificados: ${online} online, ${offline} offline e ${warning} em atenção.`,
     };
   }
 }

@@ -193,18 +193,21 @@ export async function checkAllDevices(): Promise<DeviceActionResult> {
     }
 
     const summary = (await response.json()) as {
+      success?: boolean;
+      total?: number;
       checked?: number;
       online?: number;
       offline?: number;
       warning?: number;
-      failed?: number;
+      message?: string;
     };
     revalidatePath("/equipamentos");
     revalidatePath("/dashboard");
-    const failedMessage = summary.failed ? `, ${summary.failed} com erro` : "";
     return {
       success: true,
-      message: `${summary.checked ?? 0} verificados: ${summary.online ?? 0} online, ${summary.offline ?? 0} offline e ${summary.warning ?? 0} em atenção${failedMessage}.`,
+      message:
+        summary.message ??
+        `${summary.checked ?? 0} de ${summary.total ?? 0} verificados: ${summary.online ?? 0} online, ${summary.offline ?? 0} offline e ${summary.warning ?? 0} em atenção.`,
     };
   } catch {
     return {

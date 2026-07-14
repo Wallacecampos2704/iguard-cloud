@@ -161,6 +161,25 @@ export function EquipmentManager({
     startTransition(async () => finishAction(await deleteDevice(device.id)));
   }
 
+  const summaryCards = [
+    { label: "Total", value: devices.length, color: "text-foreground" },
+    {
+      label: "Online",
+      value: devices.filter((device) => device.currentStatus === "ONLINE").length,
+      color: "text-success",
+    },
+    {
+      label: "Offline",
+      value: devices.filter((device) => device.currentStatus === "OFFLINE").length,
+      color: "text-danger",
+    },
+    {
+      label: "Atenção",
+      value: devices.filter((device) => device.currentStatus === "WARNING").length,
+      color: "text-warning",
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -170,14 +189,31 @@ export function EquipmentManager({
             Gerencie dispositivos, portas externas e protocolos de monitoramento.
           </p>
         </div>
-        <div className="flex flex-wrap gap-3">
-          <Button variant="secondary" disabled={isPending} onClick={handleCheckAll}>
+        <div className="flex w-full flex-wrap gap-3 sm:w-auto">
+          <Button
+            variant="secondary"
+            disabled={isPending}
+            onClick={handleCheckAll}
+            className="flex-1 whitespace-nowrap sm:flex-none"
+          >
             {activeAction?.type === "check-all" ? "Verificando todos..." : "Verificar todos"}
           </Button>
-          <Button onClick={() => { setMessage(null); setFormDevice(null); }}>
+          <Button
+            onClick={() => { setMessage(null); setFormDevice(null); }}
+            className="flex-1 whitespace-nowrap sm:flex-none"
+          >
             + Novo equipamento
           </Button>
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {summaryCards.map((card) => (
+          <div key={card.label} className="rounded-2xl border border-border bg-surface p-5">
+            <p className="text-xs font-medium uppercase tracking-wider text-muted">{card.label}</p>
+            <p className={`mt-2 text-3xl font-bold ${card.color}`}>{card.value}</p>
+          </div>
+        ))}
       </div>
 
       {message && (

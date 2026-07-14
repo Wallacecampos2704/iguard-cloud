@@ -90,4 +90,21 @@ describe('DevicesService', () => {
       }),
     );
   });
+
+  it('retorna o contrato completo do check em lote', async () => {
+    const batchService = new DevicesService({
+      device: { findMany: jest.fn().mockResolvedValue([]) },
+    } as unknown as PrismaService);
+
+    await expect(batchService.checkAll()).resolves.toEqual({
+      success: true,
+      total: 0,
+      checked: 0,
+      online: 0,
+      offline: 0,
+      warning: 0,
+      message:
+        '0 de 0 equipamentos verificados: 0 online, 0 offline e 0 em atenção.',
+    });
+  });
 });
