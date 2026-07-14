@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { Socket } from 'node:net';
 import { promisify } from 'node:util';
 import {
@@ -480,7 +481,8 @@ export class DevicesService {
     });
   }
 
-  async checkAll() {
+  async checkAll(source: 'BATCH' | 'AUTOMATIC' = 'BATCH') {
+    const runSource = `${source}:${randomUUID()}`;
     const devices = await this.prisma.device.findMany({
       select: {
         id: true,
@@ -500,7 +502,7 @@ export class DevicesService {
       while (cursor < devices.length) {
         const index = cursor++;
         try {
-          const result = await this.runDeviceCheck(devices[index], 'BATCH');
+          const result = await this.runDeviceCheck(devices[index], runSource);
           results[index] = result.currentStatus;
         } catch (error) {
           try {
@@ -524,7 +526,7 @@ export class DevicesService {
                   responseTimeMs: null,
                   errorMessage,
                   checkType: devices[index].checkType,
-                  source: 'BATCH',
+                  source: runSource,
                   rawPayload: { batchError: true },
                   checkedAt,
                 },

@@ -12,6 +12,8 @@ export interface DashboardSummary {
   totalApprovedAmount: number;
   platformHealthScore: number;
   lastCheckedAt: string | null;
+  lastMonitoringRunAt: string | null;
+  lastRunChecked: number;
 }
 
 export interface DashboardSummaryResult {
@@ -35,6 +37,8 @@ export const emptyDashboardSummary: DashboardSummary = {
   totalApprovedAmount: 0,
   platformHealthScore: 0,
   lastCheckedAt: null,
+  lastMonitoringRunAt: null,
+  lastRunChecked: 0,
 };
 
 function toNumber(value: unknown) {
@@ -69,6 +73,11 @@ export async function getDashboardSummary(): Promise<DashboardSummaryResult> {
         platformHealthScore: toNumber(summary.platformHealthScore),
         lastCheckedAt:
           typeof summary.lastCheckedAt === "string" ? summary.lastCheckedAt : null,
+        lastMonitoringRunAt:
+          typeof summary.lastMonitoringRunAt === "string"
+            ? summary.lastMonitoringRunAt
+            : null,
+        lastRunChecked: toNumber(summary.lastRunChecked),
       },
       hasError: false,
     };

@@ -39,6 +39,11 @@ export class DevicesController {
     return this.devicesService.checkAll();
   }
 
+  @Post('monitoring/run')
+  runMonitoring() {
+    return this.devicesService.checkAll('AUTOMATIC');
+  }
+
   @Post(':id/check')
   check(@Param('id') id: string) {
     return this.devicesService.check(id);

@@ -5,9 +5,16 @@ interface StatCardProps {
   value: string | number;
   accent?: string;
   compact?: boolean;
+  sublabel?: string;
 }
 
-function StatCard({ label, value, accent, compact = false }: StatCardProps) {
+function StatCard({
+  label,
+  value,
+  accent,
+  compact = false,
+  sublabel,
+}: StatCardProps) {
   return (
     <div className="rounded-2xl border border-border bg-surface p-5">
       <p className="text-xs font-medium uppercase tracking-wider text-muted">
@@ -20,6 +27,7 @@ function StatCard({ label, value, accent, compact = false }: StatCardProps) {
       >
         {value}
       </p>
+      {sublabel && <p className="mt-1 text-xs text-muted">{sublabel}</p>}
     </div>
   );
 }
@@ -42,6 +50,7 @@ export function StatCards({ summary }: { summary: DashboardSummary }) {
       <StatCard
         label="Última verificação geral"
         value={formatLastCheck(summary.lastCheckedAt)}
+        sublabel={`${summary.lastRunChecked} equipamentos na última execução`}
         compact
       />
     </div>

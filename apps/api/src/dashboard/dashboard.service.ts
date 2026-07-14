@@ -20,6 +20,7 @@ export class DashboardService {
       criticalIncidents,
       notificationContacts,
       latestDeviceCheck,
+      latestMonitoringRun,
     ] = await this.prisma.$transaction([
       this.prisma.organization.count(),
       this.prisma.customer.count(),
@@ -48,7 +49,23 @@ export class DashboardService {
       this.prisma.device.aggregate({
         _max: { lastCheckedAt: true },
       }),
+      this.prisma.checkResult.findFirst({
+        where: {
+          OR: [
+            { source: { startsWith: 'BATCH:' } },
+            { source: { startsWith: 'AUTOMATIC:' } },
+          ],
+        },
+        orderBy: { checkedAt: 'desc' },
+        select: { source: true, checkedAt: true },
+      }),
     ]);
+
+    const lastRunChecked = latestMonitoringRun
+      ? await this.prisma.checkResult.count({
+          where: { source: latestMonitoringRun.source },
+        })
+      : 0;
 
     const platformHealthScore =
       totalDevices === 0
@@ -77,6 +94,8 @@ export class DashboardService {
       totalApprovedAmount: 0,
       platformHealthScore,
       lastCheckedAt: latestDeviceCheck._max.lastCheckedAt,
+      lastMonitoringRunAt: latestMonitoringRun?.checkedAt ?? null,
+      lastRunChecked,
     };
   }
 }

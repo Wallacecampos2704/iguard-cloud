@@ -73,6 +73,13 @@ function labelFromOptions(
   return options.find(([option]) => option === value)?.[1] ?? value.replaceAll("_", " ");
 }
 
+function formatCheckSource(source: string) {
+  if (source === "MANUAL") return "Manual";
+  if (source.startsWith("AUTOMATIC:")) return "Automática";
+  if (source.startsWith("BATCH:")) return "Em lote";
+  return source;
+}
+
 export function EquipmentManager({
   devices,
   hasLoadError,
@@ -306,13 +313,14 @@ export function EquipmentManager({
               )}
               {history.length > 0 && (
                 <div className="overflow-x-auto rounded-xl border border-border">
-                  <table className="w-full min-w-[720px] text-sm">
+                  <table className="w-full min-w-[820px] text-sm">
                     <thead className="border-b border-border bg-surface-elevated text-left text-xs uppercase tracking-wider text-muted">
                       <tr>
                         <th className="px-4 py-3 font-medium">Data e hora</th>
                         <th className="px-4 py-3 font-medium">Status</th>
                         <th className="px-4 py-3 font-medium">Resposta</th>
                         <th className="px-4 py-3 font-medium">Verificação</th>
+                        <th className="px-4 py-3 font-medium">Origem</th>
                         <th className="px-4 py-3 font-medium">Mensagem</th>
                       </tr>
                     </thead>
@@ -325,6 +333,7 @@ export function EquipmentManager({
                           </td>
                           <td className="whitespace-nowrap px-4 py-3">{item.responseTimeMs == null ? "—" : `${item.responseTimeMs} ms`}</td>
                           <td className="px-4 py-3">{labelFromOptions(item.checkType, CHECK_TYPES)}</td>
+                          <td className="px-4 py-3">{formatCheckSource(item.source)}</td>
                           <td className={`px-4 py-3 ${item.errorMessage ? "text-danger" : "text-muted"}`}>
                             {item.errorMessage ?? "Sem erro"}
                           </td>

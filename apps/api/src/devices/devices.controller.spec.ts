@@ -26,4 +26,16 @@ describe('DevicesController routes', () => {
       RequestMethod.GET,
     );
   });
+
+  it('expõe POST /devices/monitoring/run', () => {
+    const handler = Object.getOwnPropertyDescriptor(
+      DevicesController.prototype,
+      'runMonitoring',
+    )?.value as object;
+
+    expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe('monitoring/run');
+    expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(
+      RequestMethod.POST,
+    );
+  });
 });
