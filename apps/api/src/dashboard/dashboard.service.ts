@@ -1,9 +1,5 @@
 ﻿import { Injectable } from '@nestjs/common';
-import {
-  DeviceStatus,
-  IncidentSeverity,
-  IncidentStatus,
-} from '@prisma/client';
+import { DeviceStatus, IncidentSeverity, IncidentStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -23,15 +19,24 @@ export class DashboardService {
       openIncidents,
       criticalIncidents,
       notificationContacts,
+      latestDeviceCheck,
     ] = await this.prisma.$transaction([
       this.prisma.organization.count(),
       this.prisma.customer.count(),
       this.prisma.site.count(),
       this.prisma.device.count(),
-      this.prisma.device.count({ where: { currentStatus: DeviceStatus.ONLINE } }),
-      this.prisma.device.count({ where: { currentStatus: DeviceStatus.WARNING } }),
-      this.prisma.device.count({ where: { currentStatus: DeviceStatus.OFFLINE } }),
-      this.prisma.device.count({ where: { currentStatus: DeviceStatus.UNKNOWN } }),
+      this.prisma.device.count({
+        where: { currentStatus: DeviceStatus.ONLINE },
+      }),
+      this.prisma.device.count({
+        where: { currentStatus: DeviceStatus.WARNING },
+      }),
+      this.prisma.device.count({
+        where: { currentStatus: DeviceStatus.OFFLINE },
+      }),
+      this.prisma.device.count({
+        where: { currentStatus: DeviceStatus.UNKNOWN },
+      }),
       this.prisma.incident.count({ where: { status: IncidentStatus.OPEN } }),
       this.prisma.incident.count({
         where: {
@@ -40,6 +45,9 @@ export class DashboardService {
         },
       }),
       this.prisma.notificationContact.count(),
+      this.prisma.device.aggregate({
+        _max: { lastCheckedAt: true },
+      }),
     ]);
 
     const platformHealthScore =
@@ -68,6 +76,7 @@ export class DashboardService {
       approvedPayments: 0,
       totalApprovedAmount: 0,
       platformHealthScore,
+      lastCheckedAt: latestDeviceCheck._max.lastCheckedAt,
     };
   }
 }

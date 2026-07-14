@@ -8,6 +8,20 @@ export type DeviceActionResult = {
   message: string;
 };
 
+export type DeviceCheckHistoryItem = {
+  id: string;
+  status: "ONLINE" | "WARNING" | "OFFLINE" | "UNKNOWN" | "MAINTENANCE";
+  responseTimeMs: number | null;
+  errorMessage: string | null;
+  checkType: string;
+  source: string;
+  checkedAt: string;
+};
+
+export type DeviceHistoryResult = DeviceActionResult & {
+  data: DeviceCheckHistoryItem[];
+};
+
 const DEVICE_TYPES = [
   "ROUTER",
   "MIKROTIK",
@@ -163,6 +177,68 @@ export async function checkDevice(id: string): Promise<DeviceActionResult> {
     return {
       success: false,
       message: "Não foi possível conectar à API para verificar o equipamento.",
+    };
+  }
+}
+
+export async function checkAllDevices(): Promise<DeviceActionResult> {
+  try {
+    const response = await fetch(`${DEVICES_URL}/check-all`, { method: "POST" });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      return {
+        success: false,
+        message: getApiErrorMessage(payload, "Não foi possível verificar os equipamentos."),
+      };
+    }
+
+    const summary = (await response.json()) as {
+      checked?: number;
+      online?: number;
+      offline?: number;
+      warning?: number;
+      failed?: number;
+    };
+    revalidatePath("/equipamentos");
+    revalidatePath("/dashboard");
+    const failedMessage = summary.failed ? `, ${summary.failed} com erro` : "";
+    return {
+      success: true,
+      message: `${summary.checked ?? 0} verificados: ${summary.online ?? 0} online, ${summary.offline ?? 0} offline e ${summary.warning ?? 0} em atenção${failedMessage}.`,
+    };
+  } catch {
+    return {
+      success: false,
+      message: "Não foi possível conectar à API para verificar os equipamentos.",
+    };
+  }
+}
+
+export async function getDeviceChecks(id: string): Promise<DeviceHistoryResult> {
+  try {
+    const response = await fetch(`${DEVICES_URL}/${encodeURIComponent(id)}/checks`, {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      return {
+        success: false,
+        message: getApiErrorMessage(payload, "Não foi possível carregar o histórico."),
+        data: [],
+      };
+    }
+
+    const payload = (await response.json()) as DeviceCheckHistoryItem[];
+    return {
+      success: true,
+      message: "Histórico carregado.",
+      data: Array.isArray(payload) ? payload : [],
+    };
+  } catch {
+    return {
+      success: false,
+      message: "Não foi possível conectar à API para carregar o histórico.",
+      data: [],
     };
   }
 }

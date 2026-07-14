@@ -25,6 +25,14 @@ type CheckResult = {
   rawPayload: Prisma.InputJsonValue;
 };
 
+type CheckableDevice = {
+  id: string;
+  organizationId: string;
+  host: string;
+  port: number | null;
+  checkType: CheckType;
+};
+
 const execFileAsync = promisify(execFile);
 
 @Injectable()
@@ -364,19 +372,7 @@ export class DevicesService {
     }));
   }
 
-  async check(id: string) {
-    const device = await this.prisma.device.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        organizationId: true,
-        host: true,
-        port: true,
-        checkType: true,
-      },
-    });
-    if (!device) throw new NotFoundException('Equipamento não encontrado.');
-
+  private async runDeviceCheck(device: CheckableDevice, source: string) {
     this.validatePortForCheck(device.checkType, device.port);
     let result: CheckResult;
 
@@ -430,7 +426,7 @@ export class DevicesService {
           responseTimeMs: result.responseTimeMs,
           errorMessage: result.errorMessage,
           checkType: device.checkType,
-          source: 'MANUAL',
+          source,
           rawPayload: result.rawPayload,
           checkedAt,
         },
@@ -442,6 +438,88 @@ export class DevicesService {
       ...updatedDevice,
       checkResultId: checkResult.id,
       errorMessage: result.errorMessage,
+    };
+  }
+
+  async check(id: string) {
+    const device = await this.prisma.device.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        organizationId: true,
+        host: true,
+        port: true,
+        checkType: true,
+      },
+    });
+    if (!device) throw new NotFoundException('Equipamento não encontrado.');
+
+    return this.runDeviceCheck(device, 'MANUAL');
+  }
+
+  async getChecks(id: string) {
+    const device = await this.prisma.device.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!device) throw new NotFoundException('Equipamento não encontrado.');
+
+    return this.prisma.checkResult.findMany({
+      where: { deviceId: id },
+      orderBy: { checkedAt: 'desc' },
+      take: 20,
+      select: {
+        id: true,
+        status: true,
+        responseTimeMs: true,
+        errorMessage: true,
+        checkType: true,
+        source: true,
+        checkedAt: true,
+      },
+    });
+  }
+
+  async checkAll() {
+    const devices = await this.prisma.device.findMany({
+      where: { monitoringEnabled: true },
+      select: {
+        id: true,
+        organizationId: true,
+        host: true,
+        port: true,
+        checkType: true,
+      },
+    });
+
+    const results: Array<DeviceStatus | null> = Array.from(
+      { length: devices.length },
+      () => null,
+    );
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < devices.length) {
+        const index = cursor++;
+        try {
+          const result = await this.runDeviceCheck(devices[index], 'BATCH');
+          results[index] = result.currentStatus;
+        } catch {
+          results[index] = null;
+        }
+      }
+    };
+
+    const concurrency = Math.min(5, devices.length);
+    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+
+    return {
+      checked: results.filter((status) => status !== null).length,
+      online: results.filter((status) => status === DeviceStatus.ONLINE).length,
+      offline: results.filter((status) => status === DeviceStatus.OFFLINE)
+        .length,
+      warning: results.filter((status) => status === DeviceStatus.WARNING)
+        .length,
+      failed: results.filter((status) => status === null).length,
     };
   }
 }

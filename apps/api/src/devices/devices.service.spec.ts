@@ -71,4 +71,23 @@ describe('DevicesService', () => {
 
     expect(result.status).toBe(DeviceStatus.WARNING);
   });
+
+  it('retorna as últimas 20 verificações em ordem decrescente', async () => {
+    const findUnique = jest.fn().mockResolvedValue({ id: 'device-1' });
+    const findMany = jest.fn().mockResolvedValue([]);
+    const historyService = new DevicesService({
+      device: { findUnique },
+      checkResult: { findMany },
+    } as unknown as PrismaService);
+
+    await historyService.getChecks('device-1');
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { deviceId: 'device-1' },
+        orderBy: { checkedAt: 'desc' },
+        take: 20,
+      }),
+    );
+  });
 });

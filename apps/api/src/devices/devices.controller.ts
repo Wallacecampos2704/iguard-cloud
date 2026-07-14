@@ -34,9 +34,19 @@ export class DevicesController {
     return this.devicesService.create(body);
   }
 
+  @Post('check-all')
+  checkAll() {
+    return this.devicesService.checkAll();
+  }
+
   @Post(':id/check')
   check(@Param('id') id: string) {
     return this.devicesService.check(id);
+  }
+
+  @Get(':id/checks')
+  getChecks(@Param('id') id: string) {
+    return this.devicesService.getChecks(id);
   }
 
   @Patch(':id')

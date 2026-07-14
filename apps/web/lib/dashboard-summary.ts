@@ -11,6 +11,7 @@ export interface DashboardSummary {
   approvedPayments: number;
   totalApprovedAmount: number;
   platformHealthScore: number;
+  lastCheckedAt: string | null;
 }
 
 export interface DashboardSummaryResult {
@@ -18,7 +19,7 @@ export interface DashboardSummaryResult {
   hasError: boolean;
 }
 
-const DASHBOARD_SUMMARY_URL = "http://localhost:4000/dashboard/summary";
+const DASHBOARD_SUMMARY_URL = `${process.env.API_URL ?? "http://localhost:4000"}/dashboard/summary`;
 
 export const emptyDashboardSummary: DashboardSummary = {
   totalDevices: 0,
@@ -33,6 +34,7 @@ export const emptyDashboardSummary: DashboardSummary = {
   approvedPayments: 0,
   totalApprovedAmount: 0,
   platformHealthScore: 0,
+  lastCheckedAt: null,
 };
 
 function toNumber(value: unknown) {
@@ -65,6 +67,8 @@ export async function getDashboardSummary(): Promise<DashboardSummaryResult> {
         approvedPayments: toNumber(summary.approvedPayments),
         totalApprovedAmount: toNumber(summary.totalApprovedAmount),
         platformHealthScore: toNumber(summary.platformHealthScore),
+        lastCheckedAt:
+          typeof summary.lastCheckedAt === "string" ? summary.lastCheckedAt : null,
       },
       hasError: false,
     };

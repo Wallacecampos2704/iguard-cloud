@@ -3,11 +3,14 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  checkAllDevices,
   checkDevice,
   createDevice,
   deleteDevice,
+  getDeviceChecks,
   updateDevice,
 } from "@/app/equipamentos/actions";
+import type { DeviceCheckHistoryItem } from "@/app/equipamentos/actions";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -80,20 +83,29 @@ export function EquipmentManager({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [formDevice, setFormDevice] = useState<DashboardDevice | null>();
-  const [activeAction, setActiveAction] = useState<{ type: "check" | "delete"; id: string }>();
+  const [historyDevice, setHistoryDevice] = useState<DashboardDevice>();
+  const [history, setHistory] = useState<DeviceCheckHistoryItem[]>([]);
+  const [historyError, setHistoryError] = useState<string>();
+  const [activeAction, setActiveAction] = useState<{
+    type: "check" | "delete" | "check-all" | "history";
+    id?: string;
+  }>();
   const [message, setMessage] = useState<{
     type: "success" | "error";
     text: string;
   } | null>(null);
 
   useEffect(() => {
-    if (formDevice === undefined) return;
+    if (formDevice === undefined && historyDevice === undefined) return;
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !isPending) setFormDevice(undefined);
+      if (event.key === "Escape" && !isPending) {
+        setFormDevice(undefined);
+        setHistoryDevice(undefined);
+      }
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [formDevice, isPending]);
+  }, [formDevice, historyDevice, isPending]);
 
   function finishAction(result: { success: boolean; message: string }) {
     setMessage({ type: result.success ? "success" : "error", text: result.message });
@@ -121,6 +133,25 @@ export function EquipmentManager({
     startTransition(async () => finishAction(await checkDevice(id)));
   }
 
+  function handleCheckAll() {
+    setMessage(null);
+    setActiveAction({ type: "check-all" });
+    startTransition(async () => finishAction(await checkAllDevices()));
+  }
+
+  function handleHistory(device: DashboardDevice) {
+    setHistoryDevice(device);
+    setHistory([]);
+    setHistoryError(undefined);
+    setActiveAction({ type: "history", id: device.id });
+    startTransition(async () => {
+      const result = await getDeviceChecks(device.id);
+      setHistory(result.data);
+      setHistoryError(result.success ? undefined : result.message);
+      setActiveAction(undefined);
+    });
+  }
+
   function handleDelete(device: DashboardDevice) {
     if (!window.confirm(`Excluir o equipamento “${device.name}”? Esta ação não pode ser desfeita.`)) {
       return;
@@ -139,9 +170,14 @@ export function EquipmentManager({
             Gerencie dispositivos, portas externas e protocolos de monitoramento.
           </p>
         </div>
-        <Button onClick={() => { setMessage(null); setFormDevice(null); }}>
-          + Novo equipamento
-        </Button>
+        <div className="flex flex-wrap gap-3">
+          <Button variant="secondary" disabled={isPending} onClick={handleCheckAll}>
+            {activeAction?.type === "check-all" ? "Verificando todos..." : "Verificar todos"}
+          </Button>
+          <Button onClick={() => { setMessage(null); setFormDevice(null); }}>
+            + Novo equipamento
+          </Button>
+        </div>
       </div>
 
       {message && (
@@ -182,6 +218,9 @@ export function EquipmentManager({
                   <Button variant="ghost" size="sm" disabled={isPending} onClick={() => setFormDevice(device)}>
                     Editar
                   </Button>
+                  <Button variant="ghost" size="sm" disabled={isPending} onClick={() => handleHistory(device)}>
+                    {activeAction?.type === "history" && activeAction.id === device.id ? "Carregando..." : "Histórico"}
+                  </Button>
                   <Button variant="danger" size="sm" disabled={isPending} onClick={() => handleDelete(device)}>
                     {activeAction?.type === "delete" && activeAction.id === device.id ? "Excluindo..." : "Excluir"}
                   </Button>
@@ -203,6 +242,66 @@ export function EquipmentManager({
           ))
         )}
       </div>
+
+      {historyDevice !== undefined && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="presentation">
+          <div className="max-h-[85vh] w-full max-w-4xl overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="history-title">
+            <div className="flex items-start justify-between gap-4 border-b border-border p-6">
+              <div>
+                <h2 id="history-title" className="text-lg font-semibold">Histórico de verificações</h2>
+                <p className="mt-1 text-sm text-muted">{historyDevice.name} · últimas 20 verificações</p>
+              </div>
+              <button type="button" onClick={() => setHistoryDevice(undefined)} disabled={isPending} aria-label="Fechar" className="rounded-lg px-2 py-1 text-xl text-muted hover:bg-surface-elevated hover:text-foreground">
+                ×
+              </button>
+            </div>
+
+            <div className="max-h-[65vh] overflow-auto p-6">
+              {activeAction?.type === "history" && (
+                <p className="py-8 text-center text-sm text-muted">Carregando histórico...</p>
+              )}
+              {historyError && (
+                <p role="alert" className="rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
+                  {historyError}
+                </p>
+              )}
+              {!historyError && activeAction?.type !== "history" && history.length === 0 && (
+                <p className="py-8 text-center text-sm text-muted">Nenhuma verificação registrada.</p>
+              )}
+              {history.length > 0 && (
+                <div className="overflow-x-auto rounded-xl border border-border">
+                  <table className="w-full min-w-[720px] text-sm">
+                    <thead className="border-b border-border bg-surface-elevated text-left text-xs uppercase tracking-wider text-muted">
+                      <tr>
+                        <th className="px-4 py-3 font-medium">Data e hora</th>
+                        <th className="px-4 py-3 font-medium">Status</th>
+                        <th className="px-4 py-3 font-medium">Resposta</th>
+                        <th className="px-4 py-3 font-medium">Verificação</th>
+                        <th className="px-4 py-3 font-medium">Mensagem</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {history.map((item) => (
+                        <tr key={item.id}>
+                          <td className="whitespace-nowrap px-4 py-3">{formatDate(item.checkedAt)}</td>
+                          <td className="px-4 py-3">
+                            <Badge variant={statusVariant[item.status]}>{statusLabel[item.status]}</Badge>
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3">{item.responseTimeMs == null ? "—" : `${item.responseTimeMs} ms`}</td>
+                          <td className="px-4 py-3">{labelFromOptions(item.checkType, CHECK_TYPES)}</td>
+                          <td className={`px-4 py-3 ${item.errorMessage ? "text-danger" : "text-muted"}`}>
+                            {item.errorMessage ?? "Sem erro"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {formDevice !== undefined && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="presentation">
