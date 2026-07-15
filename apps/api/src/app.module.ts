@@ -8,6 +8,8 @@ import { CustomersModule } from './customers/customers.module';
 import { DevicesModule } from './devices/devices.module';
 import { ChecksModule } from './checks/checks.module';
 import { EventsModule } from './events/events.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { IncidentsModule } from './incidents/incidents.module';
 
 @Module({
   imports: [
@@ -18,6 +20,8 @@ import { EventsModule } from './events/events.module';
     DevicesModule,
     ChecksModule,
     EventsModule,
+    NotificationsModule,
+    IncidentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

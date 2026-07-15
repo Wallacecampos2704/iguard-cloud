@@ -5,6 +5,8 @@ export interface DashboardSummary {
   devicesOffline: number;
   openIncidents: number;
   criticalIncidents: number;
+  resolvedIncidentsToday: number;
+  meanResolutionTimeMs: number;
   notificationContacts: number;
   trialSubscriptions: number;
   pendingPayments: number;
@@ -30,6 +32,8 @@ export const emptyDashboardSummary: DashboardSummary = {
   devicesOffline: 0,
   openIncidents: 0,
   criticalIncidents: 0,
+  resolvedIncidentsToday: 0,
+  meanResolutionTimeMs: 0,
   notificationContacts: 0,
   trialSubscriptions: 0,
   pendingPayments: 0,
@@ -65,6 +69,8 @@ export async function getDashboardSummary(): Promise<DashboardSummaryResult> {
         devicesOffline: toNumber(summary.devicesOffline),
         openIncidents: toNumber(summary.openIncidents),
         criticalIncidents: toNumber(summary.criticalIncidents),
+        resolvedIncidentsToday: toNumber(summary.resolvedIncidentsToday),
+        meanResolutionTimeMs: toNumber(summary.meanResolutionTimeMs),
         notificationContacts: toNumber(summary.notificationContacts),
         trialSubscriptions: toNumber(summary.trialSubscriptions),
         pendingPayments: toNumber(summary.pendingPayments),
@@ -72,7 +78,9 @@ export async function getDashboardSummary(): Promise<DashboardSummaryResult> {
         totalApprovedAmount: toNumber(summary.totalApprovedAmount),
         platformHealthScore: toNumber(summary.platformHealthScore),
         lastCheckedAt:
-          typeof summary.lastCheckedAt === "string" ? summary.lastCheckedAt : null,
+          typeof summary.lastCheckedAt === "string"
+            ? summary.lastCheckedAt
+            : null,
         lastMonitoringRunAt:
           typeof summary.lastMonitoringRunAt === "string"
             ? summary.lastMonitoringRunAt

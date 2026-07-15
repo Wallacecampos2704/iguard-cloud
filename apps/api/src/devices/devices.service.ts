@@ -5,9 +5,12 @@ import { promisify } from 'node:util';
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { CheckType, DeviceStatus, DeviceType, Prisma } from '@prisma/client';
+import { IncidentsService } from '../incidents/incidents.service';
+import { NotificationService } from '../notifications/notification.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 type DeviceInput = {
@@ -21,7 +24,7 @@ type DeviceInput = {
 
 type CheckResult = {
   status: DeviceStatus;
-  responseTimeMs: number;
+  responseTimeMs: number | null;
   errorMessage: string | null;
   rawPayload: Prisma.InputJsonValue;
 };
@@ -29,6 +32,7 @@ type CheckResult = {
 type CheckableDevice = {
   id: string;
   organizationId: string;
+  name: string;
   host: string;
   port: number | null;
   checkType: CheckType;
@@ -49,7 +53,13 @@ function readPositiveInteger(
 
 @Injectable()
 export class DevicesService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(DevicesService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+    private readonly incidentsService: IncidentsService,
+  ) {}
 
   private readonly checkTimeoutMs = readPositiveInteger(
     process.env.CHECK_TIMEOUT_MS,
@@ -401,6 +411,112 @@ export class DevicesService {
     }));
   }
 
+  private async persistCheck(
+    device: CheckableDevice,
+    result: CheckResult,
+    source: string,
+    checkedAt: Date,
+  ) {
+    return this.prisma.$transaction(async (transaction) => {
+      let previousStatus: DeviceStatus | undefined;
+
+      // A comparação e a atualização condicionais impedem que duas rotinas
+      // simultâneas alertem pela mesma mudança de status.
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const currentDevice = await transaction.device.findUnique({
+          where: { id: device.id },
+          select: { currentStatus: true },
+        });
+        if (!currentDevice) {
+          throw new NotFoundException('Equipamento não encontrado.');
+        }
+
+        const updated = await transaction.device.updateMany({
+          where: {
+            id: device.id,
+            currentStatus: currentDevice.currentStatus,
+          },
+          data: {
+            currentStatus: result.status,
+            lastCheckedAt: checkedAt,
+            responseTimeMs: result.responseTimeMs,
+          },
+        });
+
+        if (updated.count === 1) {
+          previousStatus = currentDevice.currentStatus;
+          break;
+        }
+      }
+
+      if (previousStatus === undefined) {
+        throw new Error(
+          'Não foi possível atualizar o status devido a verificações concorrentes.',
+        );
+      }
+
+      const checkResult = await transaction.checkResult.create({
+        data: {
+          organizationId: device.organizationId,
+          deviceId: device.id,
+          status: result.status,
+          responseTimeMs: result.responseTimeMs,
+          errorMessage: result.errorMessage,
+          checkType: device.checkType,
+          source,
+          rawPayload: result.rawPayload,
+          checkedAt,
+        },
+        select: { id: true },
+      });
+
+      await this.incidentsService.handleDeviceStatusChange(transaction, {
+        deviceId: device.id,
+        previousStatus,
+        currentStatus: result.status,
+        checkedAt,
+        source,
+      });
+
+      return {
+        id: device.id,
+        currentStatus: result.status,
+        lastCheckedAt: checkedAt,
+        responseTimeMs: result.responseTimeMs,
+        checkResultId: checkResult.id,
+        errorMessage: result.errorMessage,
+        previousStatus,
+      };
+    });
+  }
+
+  private async alertStatusChange(
+    device: CheckableDevice,
+    previousStatus: DeviceStatus,
+    result: CheckResult,
+    checkedAt: Date,
+  ) {
+    try {
+      await this.notificationService.notifyStatusChange({
+        name: device.name,
+        host: device.host,
+        port: device.port,
+        checkType: device.checkType,
+        previousStatus,
+        newStatus: result.status,
+        checkedAt,
+        responseTimeMs: result.responseTimeMs,
+        errorMessage: result.errorMessage,
+      });
+    } catch (error) {
+      this.logger.error(
+        error instanceof Error
+          ? `Falha inesperada ao processar alerta: ${error.message}`
+          : 'Falha inesperada ao processar alerta.',
+      );
+    }
+  }
+
   private async runDeviceCheck(device: CheckableDevice, source: string) {
     this.validatePortForCheck(device.checkType, device.port);
     let result: CheckResult;
@@ -432,41 +548,26 @@ export class DevicesService {
     }
 
     const checkedAt = new Date();
-    const [updatedDevice, checkResult] = await this.prisma.$transaction([
-      this.prisma.device.update({
-        where: { id: device.id },
-        data: {
-          currentStatus: result.status,
-          lastCheckedAt: checkedAt,
-          responseTimeMs: result.responseTimeMs,
-        },
-        select: {
-          id: true,
-          currentStatus: true,
-          lastCheckedAt: true,
-          responseTimeMs: true,
-        },
-      }),
-      this.prisma.checkResult.create({
-        data: {
-          organizationId: device.organizationId,
-          deviceId: device.id,
-          status: result.status,
-          responseTimeMs: result.responseTimeMs,
-          errorMessage: result.errorMessage,
-          checkType: device.checkType,
-          source,
-          rawPayload: result.rawPayload,
-          checkedAt,
-        },
-        select: { id: true },
-      }),
-    ]);
+    const persisted = await this.persistCheck(
+      device,
+      result,
+      source,
+      checkedAt,
+    );
+    await this.alertStatusChange(
+      device,
+      persisted.previousStatus,
+      result,
+      checkedAt,
+    );
 
     return {
-      ...updatedDevice,
-      checkResultId: checkResult.id,
-      errorMessage: result.errorMessage,
+      id: persisted.id,
+      currentStatus: persisted.currentStatus,
+      lastCheckedAt: persisted.lastCheckedAt,
+      responseTimeMs: persisted.responseTimeMs,
+      checkResultId: persisted.checkResultId,
+      errorMessage: persisted.errorMessage,
     };
   }
 
@@ -476,6 +577,7 @@ export class DevicesService {
       select: {
         id: true,
         organizationId: true,
+        name: true,
         host: true,
         port: true,
         checkType: true,
@@ -515,6 +617,7 @@ export class DevicesService {
       select: {
         id: true,
         organizationId: true,
+        name: true,
         host: true,
         port: true,
         checkType: true,
@@ -537,29 +640,24 @@ export class DevicesService {
             const checkedAt = new Date();
             const errorMessage =
               error instanceof Error ? error.message : 'Falha na verificação';
-            await this.prisma.$transaction([
-              this.prisma.device.update({
-                where: { id: devices[index].id },
-                data: {
-                  currentStatus: DeviceStatus.OFFLINE,
-                  lastCheckedAt: checkedAt,
-                  responseTimeMs: null,
-                },
-              }),
-              this.prisma.checkResult.create({
-                data: {
-                  organizationId: devices[index].organizationId,
-                  deviceId: devices[index].id,
-                  status: DeviceStatus.OFFLINE,
-                  responseTimeMs: null,
-                  errorMessage,
-                  checkType: devices[index].checkType,
-                  source: runSource,
-                  rawPayload: { batchError: true },
-                  checkedAt,
-                },
-              }),
-            ]);
+            const fallbackResult: CheckResult = {
+              status: DeviceStatus.OFFLINE,
+              responseTimeMs: null,
+              errorMessage,
+              rawPayload: { batchError: true },
+            };
+            const persisted = await this.persistCheck(
+              devices[index],
+              fallbackResult,
+              runSource,
+              checkedAt,
+            );
+            await this.alertStatusChange(
+              devices[index],
+              persisted.previousStatus,
+              fallbackResult,
+              checkedAt,
+            );
             results[index] = DeviceStatus.OFFLINE;
           } catch {
             results[index] = null;

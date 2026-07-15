@@ -58,8 +58,28 @@ enum IncidentSeverity {
 
 enum IncidentStatus {
   OPEN
-  ANALYZING
+  ACKNOWLEDGED
   RESOLVED
+}
+
+enum IncidentSource {
+  MANUAL_CHECK
+  BATCH_CHECK
+  MONITORING_CRON
+}
+
+enum IncidentCategory {
+  INTERNET
+  POWER
+  DEVICE
+  DVR
+  NVR
+  FACIAL
+  CAMERA
+  ROUTER
+  SWITCH
+  SERVER
+  UNKNOWN
 }
 
 enum SubscriptionStatus {
@@ -143,7 +163,7 @@ model Site {
 }
 
 model Device {
-  id                  String       @id @default(uuid())
+  id                   String       @id @default(uuid())
   organizationId       String
   customerId           String
   siteId               String
@@ -187,30 +207,40 @@ model CheckResult {
 }
 
 model Incident {
-  id             String           @id @default(uuid())
+  id             String            @id @default(uuid())
   organizationId String
   customerId     String?
   siteId         String?
   deviceId       String?
   title          String
-  severity       IncidentSeverity @default(MEDIUM)
-  status         IncidentStatus   @default(OPEN)
-  probableCause  String?
   description    String?
-  openedAt       DateTime         @default(now())
+  severity       IncidentSeverity  @default(MEDIUM)
+  status         IncidentStatus    @default(OPEN)
+  previousStatus DeviceStatus      @default(UNKNOWN)
+  currentStatus  DeviceStatus      @default(UNKNOWN)
+  startedAt      DateTime          @default(now())
   resolvedAt     DateTime?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
+  lastSeenAt     DateTime          @default(now())
+  source         IncidentSource    @default(MANUAL_CHECK)
+  category       IncidentCategory?
+  probableCause  String?
+  aiSummary      String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   customer     Customer?    @relation(fields: [customerId], references: [id])
   site         Site?        @relation(fields: [siteId], references: [id])
   device       Device?      @relation(fields: [deviceId], references: [id])
+
+  @@index([deviceId, status])
+  @@index([status, startedAt])
+  @@index([resolvedAt])
 }
 
 model NotificationContact {
   id                    String   @id @default(uuid())
-  organizationId         String
+  organizationId        String
   name                  String
   role                  String?
   whatsapp              String?
@@ -240,10 +270,10 @@ model AlertTemplate {
 }
 
 model Subscription {
-  id                       String             @id @default(uuid())
+  id                        String             @id @default(uuid())
   organizationId            String
-  plan                     String
-  status                   SubscriptionStatus @default(TRIAL)
+  plan                      String
+  status                    SubscriptionStatus @default(TRIAL)
   mercadoPagoSubscriptionId String?
   trialStartsAt             DateTime?
   trialEndsAt               DateTime?
@@ -258,8 +288,8 @@ model Subscription {
 
 model Payment {
   id                   String        @id @default(uuid())
-  organizationId        String
-  subscriptionId        String?
+  organizationId       String
+  subscriptionId       String?
   amount               Decimal       @db.Decimal(10, 2)
   currency             String        @default("BRL")
   status               PaymentStatus @default(PENDING)

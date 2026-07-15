@@ -1,71 +1,112 @@
-import { incidentsList } from "@/lib/mock-data";
+import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
+import type {
+  Incident,
+  IncidentSeverity,
+  IncidentStatus,
+} from "@/lib/incidents";
 
-const severityVariant = {
-  critical: "danger",
-  warning: "warning",
-  info: "info",
-} as const;
+const severityVariant: Record<IncidentSeverity, "info" | "warning" | "danger"> =
+  {
+    LOW: "info",
+    MEDIUM: "warning",
+    HIGH: "danger",
+    CRITICAL: "danger",
+  };
 
-const statusVariant = {
-  open: "danger",
-  investigating: "warning",
-  resolved: "success",
-} as const;
+const statusVariant: Record<IncidentStatus, "danger" | "warning" | "success"> =
+  {
+    OPEN: "danger",
+    ACKNOWLEDGED: "warning",
+    RESOLVED: "success",
+  };
 
-const severityLabels = {
-  critical: "Crítico",
-  warning: "Alerta",
-  info: "Info",
+const severityLabels: Record<IncidentSeverity, string> = {
+  LOW: "Baixa",
+  MEDIUM: "Média",
+  HIGH: "Alta",
+  CRITICAL: "Crítica",
 };
 
-const statusLabels = {
-  open: "Aberto",
-  investigating: "Investigando",
-  resolved: "Resolvido",
+const statusLabels: Record<IncidentStatus, string> = {
+  OPEN: "Aberto",
+  ACKNOWLEDGED: "Reconhecido",
+  RESOLVED: "Resolvido",
 };
 
-export function IncidentsList() {
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
+}
+
+interface IncidentsListProps {
+  incidents: Incident[];
+  hasError: boolean;
+}
+
+export function IncidentsList({ incidents, hasError }: IncidentsListProps) {
   return (
-    <div className="rounded-2xl border border-border bg-surface overflow-hidden">
+    <div className="overflow-hidden rounded-2xl border border-border bg-surface">
       <div className="flex items-center justify-between border-b border-border px-6 py-4">
         <h2 className="font-semibold">Incidentes recentes</h2>
-        <span className="text-xs text-muted">{incidentsList.length} abertos</span>
+        <Link
+          href="/incidentes"
+          className="text-xs text-accent hover:underline"
+        >
+          Ver todos
+        </Link>
       </div>
 
-      <div className="divide-y divide-border">
-        {incidentsList.map((incident) => (
-          <div
-            key={incident.id}
-            className="flex items-start gap-4 px-6 py-4 transition hover:bg-surface-elevated/50"
-          >
+      {hasError ? (
+        <p className="px-6 py-5 text-sm text-muted">
+          Não foi possível carregar os incidentes.
+        </p>
+      ) : incidents.length === 0 ? (
+        <p className="px-6 py-5 text-sm text-muted">Nenhum incidente aberto.</p>
+      ) : (
+        <div className="divide-y divide-border">
+          {incidents.map((incident) => (
             <div
-              className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
-                incident.severity === "critical"
-                  ? "bg-danger"
-                  : incident.severity === "warning"
-                    ? "bg-warning"
-                    : "bg-accent"
-              }`}
-            />
-            <div className="min-w-0 flex-1">
-              <p className="font-medium text-sm">{incident.title}</p>
-              <p className="mt-1 text-xs text-muted">
-                {incident.client} · {incident.equipment}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Badge variant={severityVariant[incident.severity]}>
-                  {severityLabels[incident.severity]}
-                </Badge>
-                <Badge variant={statusVariant[incident.status]}>
-                  {statusLabels[incident.status]}
-                </Badge>
+              key={incident.id}
+              className="flex items-start gap-4 px-6 py-4 transition hover:bg-surface-elevated/50"
+            >
+              <div
+                className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
+                  incident.severity === "CRITICAL" ||
+                  incident.severity === "HIGH"
+                    ? "bg-danger"
+                    : incident.severity === "MEDIUM"
+                      ? "bg-warning"
+                      : "bg-accent"
+                }`}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium">{incident.title}</p>
+                <p className="mt-1 text-xs text-muted">
+                  {incident.customer?.name ?? "Cliente não informado"} ·{" "}
+                  {incident.device?.name ?? "Equipamento não informado"}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Badge variant={severityVariant[incident.severity]}>
+                    {severityLabels[incident.severity]}
+                  </Badge>
+                  <Badge variant={statusVariant[incident.status]}>
+                    {statusLabels[incident.status]}
+                  </Badge>
+                </div>
               </div>
+              <span className="shrink-0 text-xs text-muted">
+                {formatDateTime(incident.startedAt)}
+              </span>
             </div>
-            <span className="shrink-0 text-xs text-muted">{incident.createdAt}</span>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
