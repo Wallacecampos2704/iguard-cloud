@@ -36,11 +36,31 @@ type CheckableDevice = {
 
 const execFileAsync = promisify(execFile);
 
+function readPositiveInteger(
+  value: string | undefined,
+  fallback: number,
+  maximum: number,
+) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0
+    ? Math.min(parsed, maximum)
+    : fallback;
+}
+
 @Injectable()
 export class DevicesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private readonly checkTimeoutMs = 10_000;
+  private readonly checkTimeoutMs = readPositiveInteger(
+    process.env.CHECK_TIMEOUT_MS,
+    3_000,
+    120_000,
+  );
+  private readonly checkConcurrency = readPositiveInteger(
+    process.env.CHECK_CONCURRENCY,
+    5,
+    50,
+  );
 
   private normalizeDeviceType(value: string) {
     const aliases: Record<string, DeviceType> = {
@@ -202,10 +222,18 @@ export class DevicesService {
       const finish = (result: CheckResult) => {
         if (settled) return;
         settled = true;
+        clearTimeout(hardTimeout);
         socket.destroy();
         resolve(result);
       };
 
+      const hardTimeout = setTimeout(
+        () =>
+          finish(
+            this.offlineResult(startedAt, new Error('Timeout de conexão')),
+          ),
+        this.checkTimeoutMs,
+      );
       socket.setTimeout(this.checkTimeoutMs);
       socket.once('connect', () =>
         finish({
@@ -540,8 +568,10 @@ export class DevicesService {
       }
     };
 
-    const concurrency = Math.min(5, devices.length);
-    await Promise.all(Array.from({ length: concurrency }, () => worker()));
+    const concurrency = Math.min(this.checkConcurrency, devices.length);
+    await Promise.allSettled(
+      Array.from({ length: concurrency }, () => worker()),
+    );
 
     const checked = results.filter((status) => status !== null).length;
     const online = results.filter(
