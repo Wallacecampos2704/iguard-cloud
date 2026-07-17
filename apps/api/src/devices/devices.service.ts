@@ -32,6 +32,8 @@ type CheckResult = {
 type CheckableDevice = {
   id: string;
   organizationId: string;
+  customerId: string;
+  siteId: string;
   name: string;
   host: string;
   port: number | null;
@@ -470,13 +472,16 @@ export class DevicesService {
         select: { id: true },
       });
 
-      await this.incidentsService.handleDeviceStatusChange(transaction, {
-        deviceId: device.id,
-        previousStatus,
-        currentStatus: result.status,
-        checkedAt,
-        source,
-      });
+      const incident = await this.incidentsService.handleDeviceStatusChange(
+        transaction,
+        {
+          deviceId: device.id,
+          previousStatus,
+          currentStatus: result.status,
+          checkedAt,
+          source,
+        },
+      );
 
       return {
         id: device.id,
@@ -486,6 +491,7 @@ export class DevicesService {
         checkResultId: checkResult.id,
         errorMessage: result.errorMessage,
         previousStatus,
+        incidentId: incident?.incidentId ?? null,
       };
     });
   }
@@ -495,9 +501,15 @@ export class DevicesService {
     previousStatus: DeviceStatus,
     result: CheckResult,
     checkedAt: Date,
+    incidentId: string | null,
   ) {
     try {
       await this.notificationService.notifyStatusChange({
+        organizationId: device.organizationId,
+        customerId: device.customerId,
+        siteId: device.siteId,
+        deviceId: device.id,
+        incidentId,
         name: device.name,
         host: device.host,
         port: device.port,
@@ -559,6 +571,7 @@ export class DevicesService {
       persisted.previousStatus,
       result,
       checkedAt,
+      persisted.incidentId,
     );
 
     return {
@@ -577,6 +590,8 @@ export class DevicesService {
       select: {
         id: true,
         organizationId: true,
+        customerId: true,
+        siteId: true,
         name: true,
         host: true,
         port: true,
@@ -617,6 +632,8 @@ export class DevicesService {
       select: {
         id: true,
         organizationId: true,
+        customerId: true,
+        siteId: true,
         name: true,
         host: true,
         port: true,
@@ -657,6 +674,7 @@ export class DevicesService {
               persisted.previousStatus,
               fallbackResult,
               checkedAt,
+              persisted.incidentId,
             );
             results[index] = DeviceStatus.OFFLINE;
           } catch {

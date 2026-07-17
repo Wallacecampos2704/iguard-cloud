@@ -47,10 +47,12 @@ describe('IncidentsService', () => {
     transaction.incident.findFirst.mockResolvedValue(null);
     const service = new IncidentsService({} as PrismaService);
 
-    await service.handleDeviceStatusChange(
-      transaction as unknown as Prisma.TransactionClient,
-      statusChange(DeviceStatus.ONLINE, DeviceStatus.OFFLINE, 'BATCH:run-1'),
-    );
+    await expect(
+      service.handleDeviceStatusChange(
+        transaction as unknown as Prisma.TransactionClient,
+        statusChange(DeviceStatus.ONLINE, DeviceStatus.OFFLINE, 'BATCH:run-1'),
+      ),
+    ).resolves.toEqual({ incidentId: 'created-incident', action: 'OPENED' });
 
     expect(transaction.incident.create).toHaveBeenCalledWith({
       data: {
@@ -69,6 +71,7 @@ describe('IncidentsService', () => {
         startedAt: checkedAt,
         lastSeenAt: checkedAt,
       },
+      select: { id: true },
     });
   });
 
@@ -77,14 +80,16 @@ describe('IncidentsService', () => {
     transaction.incident.findFirst.mockResolvedValue(null);
     const service = new IncidentsService({} as PrismaService);
 
-    await service.handleDeviceStatusChange(
-      transaction as unknown as Prisma.TransactionClient,
-      statusChange(
-        DeviceStatus.ONLINE,
-        DeviceStatus.WARNING,
-        'AUTOMATIC:run-1',
+    await expect(
+      service.handleDeviceStatusChange(
+        transaction as unknown as Prisma.TransactionClient,
+        statusChange(
+          DeviceStatus.ONLINE,
+          DeviceStatus.WARNING,
+          'AUTOMATIC:run-1',
+        ),
       ),
-    );
+    ).resolves.toEqual({ incidentId: 'created-incident', action: 'OPENED' });
 
     expect(transaction.incident.create).toHaveBeenCalledWith({
       data: {
@@ -103,6 +108,7 @@ describe('IncidentsService', () => {
         startedAt: checkedAt,
         lastSeenAt: checkedAt,
       },
+      select: { id: true },
     });
   });
 
@@ -111,10 +117,12 @@ describe('IncidentsService', () => {
     transaction.incident.findFirst.mockResolvedValue({ id: 'incident-1' });
     const service = new IncidentsService({} as PrismaService);
 
-    await service.handleDeviceStatusChange(
-      transaction as unknown as Prisma.TransactionClient,
-      statusChange(DeviceStatus.OFFLINE, DeviceStatus.OFFLINE),
-    );
+    await expect(
+      service.handleDeviceStatusChange(
+        transaction as unknown as Prisma.TransactionClient,
+        statusChange(DeviceStatus.OFFLINE, DeviceStatus.OFFLINE),
+      ),
+    ).resolves.toEqual({ incidentId: 'incident-1', action: 'UPDATED' });
 
     expect(transaction.incident.updateMany).toHaveBeenCalledWith({
       where: {
@@ -123,7 +131,11 @@ describe('IncidentsService', () => {
           in: [IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED],
         },
       },
-      data: { lastSeenAt: checkedAt },
+      data: {
+        lastSeenAt: checkedAt,
+        currentStatus: DeviceStatus.OFFLINE,
+        severity: IncidentSeverity.CRITICAL,
+      },
     });
     expect(transaction.incident.create).not.toHaveBeenCalled();
     expect(transaction.device.findUnique).not.toHaveBeenCalled();
@@ -148,14 +160,16 @@ describe('IncidentsService', () => {
     transaction.incident.findFirst.mockResolvedValue({ id: 'incident-1' });
     const service = new IncidentsService({} as PrismaService);
 
-    await service.handleDeviceStatusChange(
-      transaction as unknown as Prisma.TransactionClient,
-      statusChange(
-        DeviceStatus.OFFLINE,
-        DeviceStatus.ONLINE,
-        'AUTOMATIC:run-1',
+    await expect(
+      service.handleDeviceStatusChange(
+        transaction as unknown as Prisma.TransactionClient,
+        statusChange(
+          DeviceStatus.OFFLINE,
+          DeviceStatus.ONLINE,
+          'AUTOMATIC:run-1',
+        ),
       ),
-    );
+    ).resolves.toEqual({ incidentId: 'incident-1', action: 'RESOLVED' });
 
     expect(transaction.incident.updateMany).toHaveBeenCalledWith({
       where: {
@@ -215,9 +229,10 @@ describe('IncidentsService', () => {
         lastSeenAt: Date;
       };
     };
-    const updateMany = jest
-      .fn((args: ResolveUpdateArgs) => args)
-      .mockResolvedValue({ count: 1 });
+    const updateMany = jest.fn((args: ResolveUpdateArgs) => {
+      void args;
+      return Promise.resolve({ count: 1 });
+    });
     const service = new IncidentsService({
       incident: { findUnique, updateMany },
     } as unknown as PrismaService);

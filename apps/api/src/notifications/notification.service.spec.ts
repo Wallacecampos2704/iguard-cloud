@@ -29,6 +29,11 @@ const DISALLOWED_TRANSITIONS = ALL_STATUSES.flatMap((previousStatus) =>
 const makeAlert = (
   overrides: Partial<StatusChangeAlert> = {},
 ): StatusChangeAlert => ({
+  organizationId: 'organization-1',
+  customerId: 'customer-1',
+  siteId: 'site-1',
+  deviceId: 'device-1',
+  incidentId: 'incident-1',
   name: 'Portaria Jardins',
   host: 'gateway.example.com',
   port: 8443,
@@ -85,7 +90,7 @@ describe('NotificationService', () => {
 
       await expect(
         service.notifyStatusChange(makeAlert({ previousStatus, newStatus })),
-      ).resolves.toEqual({ email: 'logged', telegram: 'skipped' });
+      ).resolves.toEqual({ email: 'skipped', telegram: 'skipped' });
     },
   );
 
@@ -201,7 +206,7 @@ describe('NotificationService', () => {
     const service = new NotificationService();
 
     await expect(service.notifyStatusChange(makeAlert())).resolves.toEqual({
-      email: 'logged',
+      email: 'skipped',
       telegram: 'skipped',
     });
     expect(fetchMock).not.toHaveBeenCalled();
@@ -215,9 +220,9 @@ describe('NotificationService', () => {
 
     await expect(service.sendTest()).resolves.toEqual({
       success: true,
-      message: 'Teste registrado no canal EMAIL; Telegram não configurado.',
+      message: 'Teste registrado; Telegram não configurado ou desabilitado.',
       channels: {
-        email: 'logged',
+        email: 'skipped',
         telegram: 'skipped',
       },
     });
@@ -233,7 +238,7 @@ describe('NotificationService', () => {
     const service = new NotificationService();
 
     await expect(service.notifyStatusChange(makeAlert())).resolves.toEqual({
-      email: 'logged',
+      email: 'skipped',
       telegram: 'sent',
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -256,7 +261,7 @@ describe('NotificationService', () => {
     const service = new NotificationService();
 
     await expect(service.notifyStatusChange(makeAlert())).resolves.toEqual({
-      email: 'logged',
+      email: 'skipped',
       telegram: 'failed',
     });
     expect(loggerError).toHaveBeenCalledWith('Telegram respondeu HTTP 401.');
@@ -271,11 +276,11 @@ describe('NotificationService', () => {
     const service = new NotificationService();
 
     await expect(service.notifyStatusChange(makeAlert())).resolves.toEqual({
-      email: 'logged',
+      email: 'skipped',
       telegram: 'failed',
     });
     expect(loggerError).toHaveBeenCalledWith(
-      expect.stringContaining('conexão indisponível'),
+      'Falha ao comunicar com Telegram.',
     );
   });
 });

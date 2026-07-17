@@ -82,6 +82,30 @@ enum IncidentCategory {
   UNKNOWN
 }
 
+enum NotificationChannel {
+  EMAIL
+  TELEGRAM
+  WHATSAPP
+  SMS
+  PUSH
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum NotificationType {
+  DEVICE_OFFLINE
+  DEVICE_ONLINE
+  DEVICE_WARNING
+  INCIDENT_OPENED
+  INCIDENT_RESOLVED
+  TEST
+}
+
 enum SubscriptionStatus {
   TRIAL
   ACTIVE
@@ -113,15 +137,17 @@ model Organization {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  customers            Customer[]
-  sites                Site[]
-  devices              Device[]
-  checkResults         CheckResult[]
-  incidents            Incident[]
-  notificationContacts NotificationContact[]
-  alertTemplates       AlertTemplate[]
-  subscriptions        Subscription[]
-  payments             Payment[]
+  customers               Customer[]
+  sites                   Site[]
+  devices                 Device[]
+  checkResults            CheckResult[]
+  incidents               Incident[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
+  notificationContacts    NotificationContact[]
+  alertTemplates          AlertTemplate[]
+  subscriptions           Subscription[]
+  payments                Payment[]
 }
 
 model Customer {
@@ -137,10 +163,12 @@ model Customer {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sites        Site[]
-  devices      Device[]
-  incidents    Incident[]
+  organization            Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sites                   Site[]
+  devices                 Device[]
+  incidents               Incident[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
 }
 
 model Site {
@@ -156,10 +184,11 @@ model Site {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  devices      Device[]
-  incidents    Incident[]
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer      Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  devices       Device[]
+  incidents     Incident[]
+  notifications Notification[]
 }
 
 model Device {
@@ -183,11 +212,12 @@ model Device {
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
 
-  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  customer     Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  site         Site          @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  checkResults CheckResult[]
-  incidents    Incident[]
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer      Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  site          Site           @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  checkResults  CheckResult[]
+  incidents     Incident[]
+  notifications Notification[]
 }
 
 model CheckResult {
@@ -228,14 +258,77 @@ model Incident {
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  customer     Customer?    @relation(fields: [customerId], references: [id])
-  site         Site?        @relation(fields: [siteId], references: [id])
-  device       Device?      @relation(fields: [deviceId], references: [id])
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer      Customer?      @relation(fields: [customerId], references: [id])
+  site          Site?          @relation(fields: [siteId], references: [id])
+  device        Device?        @relation(fields: [deviceId], references: [id])
+  notifications Notification[]
 
   @@index([deviceId, status])
   @@index([status, startedAt])
   @@index([resolvedAt])
+}
+
+model Notification {
+  id                String              @id @default(uuid())
+  organizationId    String
+  customerId        String?
+  siteId            String?
+  deviceId          String?
+  incidentId        String?
+  channel           NotificationChannel
+  type              NotificationType
+  status            NotificationStatus  @default(PENDING)
+  recipient         String?
+  subject           String?
+  message           String
+  providerMessageId String?
+  errorMessage      String?
+  attemptCount      Int                 @default(0)
+  sentAt            DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  deduplicationKey  String?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  site         Site?        @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  device       Device?      @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  incident     Incident?    @relation(fields: [incidentId], references: [id], onDelete: SetNull)
+
+  @@unique([channel, deduplicationKey])
+  @@index([organizationId, createdAt])
+  @@index([customerId, createdAt])
+  @@index([deviceId, createdAt])
+  @@index([status, createdAt])
+  @@index([channel, createdAt])
+  @@index([type, createdAt])
+}
+
+model NotificationPreference {
+  id                       String   @id @default(uuid())
+  organizationId           String
+  customerId               String?  @unique
+  telegramEnabled          Boolean  @default(false)
+  emailEnabled             Boolean  @default(false)
+  whatsappEnabled          Boolean  @default(false)
+  smsEnabled               Boolean  @default(false)
+  alertOnOffline           Boolean  @default(true)
+  alertOnRecovery          Boolean  @default(true)
+  alertOnWarning           Boolean  @default(true)
+  confirmationDelaySeconds Int      @default(0)
+  cooldownMinutes          Int      @default(0)
+  quietHoursEnabled        Boolean  @default(false)
+  quietHoursStart          String?
+  quietHoursEnd            String?
+  timezone                 String   @default("America/Sao_Paulo")
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer?    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }
 
 model NotificationContact {

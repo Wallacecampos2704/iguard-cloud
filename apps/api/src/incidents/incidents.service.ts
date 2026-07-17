@@ -18,6 +18,11 @@ export type DeviceStatusChangeInput = {
   source: string;
 };
 
+export type IncidentLifecycleResult = {
+  incidentId: string;
+  action: 'OPENED' | 'UPDATED' | 'RESOLVED';
+};
+
 const ACTIVE_INCIDENT_STATUSES = [
   IncidentStatus.OPEN,
   IncidentStatus.ACKNOWLEDGED,
@@ -91,7 +96,7 @@ export class IncidentsService {
   async handleDeviceStatusChange(
     transaction: Prisma.TransactionClient,
     input: DeviceStatusChangeInput,
-  ) {
+  ): Promise<IncidentLifecycleResult | null> {
     const isUnhealthy =
       input.currentStatus === DeviceStatus.OFFLINE ||
       input.currentStatus === DeviceStatus.WARNING;
@@ -115,10 +120,16 @@ export class IncidentsService {
             id: activeIncident.id,
             status: { in: ACTIVE_INCIDENT_STATUSES },
           },
-          data: { lastSeenAt: input.checkedAt },
+          data: {
+            lastSeenAt: input.checkedAt,
+            currentStatus: input.currentStatus,
+            ...(input.currentStatus === DeviceStatus.OFFLINE
+              ? { severity: IncidentSeverity.CRITICAL }
+              : {}),
+          },
         });
         if (touchedIncident.count === 1) {
-          return touchedIncident;
+          return { incidentId: activeIncident.id, action: 'UPDATED' };
         }
       }
 
@@ -141,7 +152,7 @@ export class IncidentsService {
       }
 
       const isOffline = input.currentStatus === DeviceStatus.OFFLINE;
-      return transaction.incident.create({
+      const incident = await transaction.incident.create({
         data: {
           organizationId: device.organizationId,
           customerId: device.customerId,
@@ -162,14 +173,17 @@ export class IncidentsService {
           source: this.mapSource(input.source),
           category: this.mapCategory(device.deviceType),
         },
+        select: { id: true },
       });
+
+      return { incidentId: incident.id, action: 'OPENED' };
     }
 
     if (!activeIncident) {
       return null;
     }
 
-    return transaction.incident.updateMany({
+    const resolved = await transaction.incident.updateMany({
       where: {
         id: activeIncident.id,
         status: { in: ACTIVE_INCIDENT_STATUSES },
@@ -181,6 +195,10 @@ export class IncidentsService {
         lastSeenAt: input.checkedAt,
       },
     });
+
+    return resolved.count === 1
+      ? { incidentId: activeIncident.id, action: 'RESOLVED' }
+      : null;
   }
 
   private mapSource(source: string) {

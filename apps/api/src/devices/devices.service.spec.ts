@@ -384,7 +384,7 @@ describe('DevicesService', () => {
         port: 9000,
         checkType: CheckType.HTTP,
       };
-      let persistedStatus = DeviceStatus.ONLINE;
+      let persistedStatus: DeviceStatus = DeviceStatus.ONLINE;
       let initialReadCount = 0;
       let releaseInitialReads: () => void = () => undefined;
       const bothInitialReads = new Promise<void>((resolve) => {
