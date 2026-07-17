@@ -7,6 +7,7 @@ import {
 } from "@/app/alertas/actions";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { TransientFeedback } from "@/components/ui/TransientFeedback";
 import type { NotificationPreferences } from "@/lib/notification-preferences";
 
 const initialState: AlertPreferencesActionState = {
@@ -257,13 +258,17 @@ export function AlertPreferencesForm({
         <Button type="submit" disabled={pending}>
           {pending ? "Salvando..." : "Salvar preferências"}
         </Button>
-        {state.message && (
-          <p
-            role="status"
-            className={`text-sm ${state.success ? "text-success" : "text-danger"}`}
-          >
-            {state.message}
-          </p>
+        {!pending && state.message && (
+          <TransientFeedback
+            key={`${state.success}-${state.message}`}
+            message={
+              state.success
+                ? "Preferências salvas com sucesso"
+                : state.message
+            }
+            success={state.success}
+            className="text-sm"
+          />
         )}
       </div>
     </form>

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DEMO_MODE_ENABLED } from "@/lib/demo-mode";
 
 export function DashboardPreview() {
   return (
@@ -81,10 +82,12 @@ export function DashboardPreview() {
         href="/dashboard"
         className="absolute -bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-accent/30 bg-surface px-4 py-1.5 text-xs font-medium text-accent shadow-lg transition hover:border-accent/60 hover:bg-accent/10"
       >
-        <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
-          <path d="M8 5v14l11-7z" />
-        </svg>
-        Explorar demonstração
+        {DEMO_MODE_ENABLED && (
+          <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M8 5v14l11-7z" />
+          </svg>
+        )}
+        {DEMO_MODE_ENABLED ? "Explorar demonstração" : "Acessar painel"}
       </Link>
     </div>
   );

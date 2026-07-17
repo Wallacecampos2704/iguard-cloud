@@ -5,6 +5,7 @@ import type {
   IncidentSeverity,
   IncidentStatus,
 } from "@/lib/incidents";
+import { formatDateTime } from "@/lib/date-time";
 
 const severityVariant: Record<IncidentSeverity, "info" | "warning" | "danger"> =
   {
@@ -33,16 +34,6 @@ const statusLabels: Record<IncidentStatus, string> = {
   ACKNOWLEDGED: "Reconhecido",
   RESOLVED: "Resolvido",
 };
-
-function formatDateTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(date);
-}
 
 interface IncidentsListProps {
   incidents: Incident[];

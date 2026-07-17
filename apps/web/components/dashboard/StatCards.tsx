@@ -1,4 +1,5 @@
 import type { DashboardSummary } from "@/lib/dashboard-summary";
+import { formatDateTime } from "@/lib/date-time";
 
 interface StatCardProps {
   label: string;
@@ -33,11 +34,7 @@ function StatCard({
 }
 
 function formatLastCheck(value: string | null) {
-  if (!value) return "Nunca";
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(value));
+  return formatDateTime(value, "Nunca");
 }
 
 export function StatCards({ summary }: { summary: DashboardSummary }) {

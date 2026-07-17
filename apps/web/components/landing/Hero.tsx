@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { DashboardPreview } from "@/components/landing/DashboardPreview";
 import { HeroBadges } from "@/components/landing/HeroBadges";
+import { DEMO_MODE_ENABLED } from "@/lib/demo-mode";
 
 export function Hero() {
   return (
@@ -59,10 +60,12 @@ export function Hero() {
                 size="lg"
                 className="w-full sm:w-auto"
               >
-                <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-                Ver demonstração
+                {DEMO_MODE_ENABLED && (
+                  <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                )}
+                {DEMO_MODE_ENABLED ? "Ver demonstração" : "Acessar painel"}
               </Button>
             </div>
 

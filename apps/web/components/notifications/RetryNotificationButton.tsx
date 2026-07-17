@@ -6,6 +6,7 @@ import {
   type NotificationActionState,
 } from "@/app/notificacoes/actions";
 import { Button } from "@/components/ui/Button";
+import { TransientFeedback } from "@/components/ui/TransientFeedback";
 
 const initialState: NotificationActionState = {
   success: false,
@@ -39,13 +40,13 @@ export function RetryNotificationButton({
           {pending ? "Reenviando..." : "Reenviar"}
         </Button>
       </form>
-      {state.message && (
-        <p
-          role="status"
-          className={`max-w-56 text-xs ${state.success ? "text-success" : "text-danger"}`}
-        >
-          {state.message}
-        </p>
+      {!pending && state.message && (
+        <TransientFeedback
+          key={`${state.success}-${state.message}`}
+          message={state.message}
+          success={state.success}
+          className="max-w-56 text-xs"
+        />
       )}
     </div>
   );

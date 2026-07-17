@@ -5,6 +5,7 @@ import {
   type ApiDeviceStatus,
   type DashboardDevice,
 } from "@/lib/dashboard-devices";
+import { formatDateTime } from "@/lib/date-time";
 
 type EquipmentStatus = "online" | "attention" | "offline" | "neutral";
 
@@ -44,14 +45,7 @@ function formatResponseTime(responseTimeMs: number | null) {
 }
 
 function formatLastCheckedAt(lastCheckedAt: string | null) {
-  if (!lastCheckedAt) {
-    return "Nunca";
-  }
-
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(lastCheckedAt));
+  return formatDateTime(lastCheckedAt, "Nunca");
 }
 
 function formatDeviceType(deviceType: string) {

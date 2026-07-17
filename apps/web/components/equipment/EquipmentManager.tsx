@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   checkAllDevices,
@@ -14,6 +14,8 @@ import type { DeviceCheckHistoryItem } from "@/app/equipamentos/actions";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { TransientFeedback } from "@/components/ui/TransientFeedback";
+import { formatDateTime } from "@/lib/date-time";
 import type { ApiDeviceStatus, DashboardDevice } from "@/lib/dashboard-devices";
 
 const DEVICE_TYPES = [
@@ -57,14 +59,12 @@ const statusVariant: Record<
 };
 const fieldClass =
   "mt-2 w-full rounded-xl border border-border bg-surface-elevated px-3 py-2.5 text-sm text-foreground outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20";
-
-function formatDate(value: string | null) {
-  if (!value) return "Nunca";
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
+const EQUIPMENT_FEEDBACK_QUERY_KEYS = [
+  "message",
+  "success",
+  "error",
+  "type",
+] as const;
 
 function labelFromOptions(
   value: string,
@@ -83,9 +83,14 @@ function formatCheckSource(source: string) {
 export function EquipmentManager({
   devices,
   hasLoadError,
+  initialMessage = null,
 }: {
   devices: DashboardDevice[];
   hasLoadError: boolean;
+  initialMessage?: {
+    type: "success" | "error";
+    text: string;
+  } | null;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -100,7 +105,8 @@ export function EquipmentManager({
   const [message, setMessage] = useState<{
     type: "success" | "error";
     text: string;
-  } | null>(null);
+  } | null>(initialMessage);
+  const dismissMessage = useCallback(() => setMessage(null), []);
 
   useEffect(() => {
     if (formDevice === undefined && historyDevice === undefined) return;
@@ -122,6 +128,7 @@ export function EquipmentManager({
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setMessage(null);
     const data = new FormData(event.currentTarget);
     const editing = formDevice ?? null;
 
@@ -223,17 +230,17 @@ export function EquipmentManager({
         ))}
       </div>
 
-      {message && (
-        <div
-          role="status"
-          className={`rounded-xl border px-4 py-3 text-sm ${
-            message.type === "success"
-              ? "border-success/30 bg-success/10 text-success"
-              : "border-danger/30 bg-danger/10 text-danger"
-          }`}
-        >
-          {message.text}
-        </div>
+      {message && formDevice === undefined && (
+        <TransientFeedback
+          key={`${message.type}-${message.text}`}
+          message={message.text}
+          success={message.type === "success"}
+          className="rounded-xl border px-4 py-3 text-sm"
+          successClassName="border-success/30 bg-success/10 text-success"
+          errorClassName="border-danger/30 bg-danger/10 text-danger"
+          clearUrlParams={EQUIPMENT_FEEDBACK_QUERY_KEYS}
+          onDismiss={dismissMessage}
+        />
       )}
       {hasLoadError && (
         <div role="alert" className="rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
@@ -278,7 +285,7 @@ export function EquipmentManager({
                 <Detail label="Host externo" value={device.host} mono accent />
                 <Detail label="Porta externa" value={device.port?.toString() ?? "—"} />
                 <Detail label="Tipo de verificação" value={labelFromOptions(device.checkType, CHECK_TYPES)} />
-                <Detail label="Última verificação" value={formatDate(device.lastCheckedAt)} />
+                <Detail label="Última verificação" value={formatDateTime(device.lastCheckedAt, "Nunca")} />
                 <Detail label="Tempo de resposta" value={device.responseTimeMs == null ? "—" : `${device.responseTimeMs} ms`} />
               </div>
             </Card>
@@ -327,7 +334,7 @@ export function EquipmentManager({
                     <tbody className="divide-y divide-border">
                       {history.map((item) => (
                         <tr key={item.id}>
-                          <td className="whitespace-nowrap px-4 py-3">{formatDate(item.checkedAt)}</td>
+                          <td className="whitespace-nowrap px-4 py-3">{formatDateTime(item.checkedAt)}</td>
                           <td className="px-4 py-3">
                             <Badge variant={statusVariant[item.status]}>{statusLabel[item.status]}</Badge>
                           </td>
@@ -350,7 +357,7 @@ export function EquipmentManager({
 
       {formDevice !== undefined && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="presentation">
-          <div className="w-full max-w-xl rounded-2xl border border-border bg-surface p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="device-form-title">
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-xl overflow-y-auto rounded-2xl border border-border bg-surface p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="device-form-title">
             <form key={formDevice?.id ?? "new"} onSubmit={handleSubmit}>
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -399,7 +406,16 @@ export function EquipmentManager({
                 </label>
               </div>
 
-              {message?.type === "error" && <p role="alert" className="mt-4 text-sm text-danger">{message.text}</p>}
+              {message?.type === "error" && (
+                <TransientFeedback
+                  key={`${message.type}-${message.text}`}
+                  message={message.text}
+                  success={false}
+                  className="mt-4 text-sm"
+                  clearUrlParams={EQUIPMENT_FEEDBACK_QUERY_KEYS}
+                  onDismiss={dismissMessage}
+                />
+              )}
               <div className="mt-6 flex justify-end gap-3">
                 <Button type="button" variant="secondary" disabled={isPending} onClick={() => setFormDevice(undefined)}>Cancelar</Button>
                 <Button type="submit" disabled={isPending}>{isPending ? "Salvando..." : "Salvar equipamento"}</Button>

@@ -4,6 +4,10 @@ import { IncidentActions } from "@/components/incidents/IncidentActions";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import {
+  formatDateTime,
+  getDurationMilliseconds,
+} from "@/lib/date-time";
+import {
   getIncidents,
   type Incident,
   type IncidentSeverity,
@@ -36,28 +40,16 @@ const statusStyles: Record<IncidentStatus, string> = {
   RESOLVED: "bg-success/10 text-success border-success/20",
 };
 
-function formatDateTime(value: string | null) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(date);
-}
-
 function formatDuration(incident: Incident, now: number) {
-  const startedAt = new Date(incident.startedAt).getTime();
-  const finishedAt = incident.resolvedAt
-    ? new Date(incident.resolvedAt).getTime()
-    : now;
-
-  if (Number.isNaN(startedAt) || Number.isNaN(finishedAt)) return "—";
+  const duration = getDurationMilliseconds(
+    incident.startedAt,
+    incident.resolvedAt ?? now,
+  );
+  if (duration === null) return "—";
 
   const totalMinutes = Math.max(
     0,
-    Math.floor((finishedAt - startedAt) / 60_000),
+    Math.floor(duration / 60_000),
   );
   if (totalMinutes < 1) return "< 1 min";
   if (totalMinutes < 60) return `${totalMinutes} min`;

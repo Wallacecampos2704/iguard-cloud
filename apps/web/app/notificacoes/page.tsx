@@ -4,6 +4,7 @@ import { Sidebar } from "@/components/dashboard/Sidebar";
 import { RetryNotificationButton } from "@/components/notifications/RetryNotificationButton";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
+import { formatDateTime } from "@/lib/date-time";
 import {
   getNotification,
   getNotifications,
@@ -87,18 +88,6 @@ function readEnum<T extends string>(
   values: readonly T[],
 ): T | undefined {
   return values.includes(value as T) ? (value as T) : undefined;
-}
-
-function formatDateTime(value: string | null) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-
-  return new Intl.DateTimeFormat("pt-BR", {
-    dateStyle: "short",
-    timeStyle: "short",
-    timeZone: "America/Sao_Paulo",
-  }).format(date);
 }
 
 function createNotificationsHref(

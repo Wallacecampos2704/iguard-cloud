@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
+import { DEMO_MODE_ENABLED } from "@/lib/demo-mode";
 
 export function Navbar() {
   return (
@@ -46,11 +47,17 @@ export function Navbar() {
 
         <div className="flex shrink-0 items-center gap-2 sm:gap-3">
           <Button href="/dashboard" variant="demo" size="sm">
-            <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M8 5v14l11-7z" />
-            </svg>
-            <span className="hidden sm:inline">Ver demonstração</span>
-            <span className="sm:hidden">Demo</span>
+            {DEMO_MODE_ENABLED && (
+              <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            )}
+            <span className="hidden sm:inline">
+              {DEMO_MODE_ENABLED ? "Ver demonstração" : "Acessar painel"}
+            </span>
+            <span className="sm:hidden">
+              {DEMO_MODE_ENABLED ? "Demo" : "Painel"}
+            </span>
           </Button>
           <Button href="/dashboard" size="sm" className="text-xs sm:text-sm">
             <span className="hidden sm:inline">Começar teste grátis</span>

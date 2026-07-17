@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { DEMO_MODE_ENABLED } from "@/lib/demo-mode";
 
 const navItems = [
   {
@@ -87,11 +88,15 @@ const navItems = [
   },
 ];
 
-export function Sidebar() {
+export function Sidebar({
+  demoMode = DEMO_MODE_ENABLED,
+}: {
+  demoMode?: boolean;
+}) {
   const pathname = usePathname();
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-border bg-surface">
+    <aside className="fixed inset-y-0 left-0 z-40 flex w-64 flex-col overflow-y-auto border-r border-border bg-surface">
       <div className="flex h-16 items-center gap-2 border-b border-border px-6">
         <Link href="/" className="flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10 border border-accent/30">
@@ -125,20 +130,22 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="border-t border-border p-4">
-        <div className="rounded-xl bg-accent/5 border border-accent/20 p-4">
-          <p className="text-xs font-medium text-accent">Modo demonstração</p>
-          <p className="mt-1 text-xs text-muted">
-            Dados simulados para preview visual.
-          </p>
-          <Link
-            href="/"
-            className="mt-3 inline-flex text-xs text-accent hover:underline"
-          >
-            ← Voltar ao site
-          </Link>
+      {demoMode && (
+        <div className="border-t border-border p-4">
+          <div className="rounded-xl border border-accent/20 bg-accent/5 p-4">
+            <p className="text-xs font-medium text-accent">Modo demonstração</p>
+            <p className="mt-1 text-xs text-muted">
+              Dados simulados para preview visual.
+            </p>
+            <Link
+              href="/"
+              className="mt-3 inline-flex text-xs text-accent hover:underline"
+            >
+              ← Voltar ao site
+            </Link>
+          </div>
         </div>
-      </div>
+      )}
     </aside>
   );
 }
