@@ -4,6 +4,6 @@ import { ChecksService } from './checks.service';
 
 @Module({
   controllers: [ChecksController],
-  providers: [ChecksService]
+  providers: [ChecksService],
 })
 export class ChecksModule {}
