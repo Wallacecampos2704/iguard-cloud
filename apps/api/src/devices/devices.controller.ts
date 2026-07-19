@@ -2,11 +2,19 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
   Post,
+  UseGuards,
 } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { Roles } from '../auth/roles.decorator';
+import { RolesGuard } from '../auth/roles.guard';
+import { SessionGuard } from '../auth/session.guard';
+import type { AuthenticatedUser } from '../auth/auth.types';
 import { DevicesService } from './devices.service';
 
 type CreateDeviceBody = {
@@ -21,46 +29,71 @@ type CreateDeviceBody = {
 type UpdateDeviceBody = Partial<CreateDeviceBody>;
 
 @Controller('devices')
+@UseGuards(SessionGuard)
 export class DevicesController {
   constructor(private readonly devicesService: DevicesService) {}
 
+  private requireOrganizationId(user: AuthenticatedUser): string {
+    if (!user.organizationId || !user.organizationId.trim()) {
+      throw new ForbiddenException(
+        'Esta ação requer uma organização associada.',
+      );
+    }
+    return user.organizationId;
+  }
+
   @Get()
-  findAll() {
-    return this.devicesService.findAll();
+  findAll(@CurrentUser() user: AuthenticatedUser) {
+    return this.devicesService.findAll(this.requireOrganizationId(user));
   }
 
   @Post()
-  create(@Body() body: CreateDeviceBody) {
-    return this.devicesService.create(body);
+  create(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() body: CreateDeviceBody,
+  ) {
+    return this.devicesService.create(this.requireOrganizationId(user), body);
   }
 
   @Post('check-all')
-  checkAll() {
-    return this.devicesService.checkAll();
+  checkAll(@CurrentUser() user: AuthenticatedUser) {
+    return this.devicesService.checkAllForOrganization(
+      this.requireOrganizationId(user),
+    );
   }
 
   @Post('monitoring/run')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.MASTER)
   runMonitoring() {
-    return this.devicesService.checkAll('AUTOMATIC');
+    return this.devicesService.checkAllOrganizationsInternal('AUTOMATIC');
   }
 
   @Post(':id/check')
-  check(@Param('id') id: string) {
-    return this.devicesService.check(id);
+  check(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.devicesService.check(this.requireOrganizationId(user), id);
   }
 
   @Get(':id/checks')
-  getChecks(@Param('id') id: string) {
-    return this.devicesService.getChecks(id);
+  getChecks(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.devicesService.getChecks(this.requireOrganizationId(user), id);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() body: UpdateDeviceBody) {
-    return this.devicesService.update(id, body);
+  update(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() body: UpdateDeviceBody,
+  ) {
+    return this.devicesService.update(
+      this.requireOrganizationId(user),
+      id,
+      body,
+    );
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.devicesService.remove(id);
+  remove(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+    return this.devicesService.remove(this.requireOrganizationId(user), id);
   }
 }

@@ -1,5 +1,5 @@
-import { Logger } from '@nestjs/common';
-import { CheckType, DeviceStatus } from '@prisma/client';
+import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
+import { CheckType, DeviceStatus, DeviceType } from '@prisma/client';
 import { IncidentsService } from '../incidents/incidents.service';
 import { NotificationService } from '../notifications/notification.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -17,6 +17,10 @@ type TestableDevicesService = {
     port: number | null,
     checkType: CheckType,
   ) => Promise<{ status: DeviceStatus; responseTimeMs: number }>;
+  runDeviceCheck: (
+    device: unknown,
+    source: string,
+  ) => Promise<{ currentStatus: DeviceStatus }>;
 };
 
 describe('DevicesService', () => {
@@ -87,30 +91,398 @@ describe('DevicesService', () => {
     expect(result.status).toBe(DeviceStatus.WARNING);
   });
 
-  it('retorna as últimas 20 verificações em ordem decrescente', async () => {
-    const findUnique = jest.fn().mockResolvedValue({ id: 'device-1' });
-    const findMany = jest.fn().mockResolvedValue([]);
-    const historyService = new DevicesService(
-      {
-        device: { findUnique },
-        checkResult: { findMany },
-      } as unknown as PrismaService,
-      notificationService,
-      incidentsService,
-    );
+  describe('findAll', () => {
+    it('filtra device.findMany por organizationId', async () => {
+      const findMany = jest.fn().mockResolvedValue([]);
+      const scopedService = new DevicesService(
+        { device: { findMany } } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
 
-    await historyService.getChecks('device-1');
+      await scopedService.findAll('organization-1');
 
-    expect(findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { deviceId: 'device-1' },
-        orderBy: { checkedAt: 'desc' },
-        take: 20,
-      }),
-    );
+      expect(findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { organizationId: 'organization-1' },
+        }),
+      );
+    });
+
+    it('não lista equipamentos de outras organizações', async () => {
+      const findMany = jest.fn().mockResolvedValue([
+        {
+          id: 'device-1',
+          name: 'Câmera portaria',
+          deviceType: DeviceType.CAMERA_IP,
+          host: 'camera.example.com',
+          port: null,
+          checkType: CheckType.HTTP,
+          currentStatus: DeviceStatus.ONLINE,
+          responseTimeMs: 120,
+          lastCheckedAt: null,
+          customer: { name: 'Cliente 1' },
+          site: { name: 'Site 1' },
+        },
+      ]);
+      const scopedService = new DevicesService(
+        { device: { findMany } } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
+
+      const result = await scopedService.findAll('organization-1');
+
+      expect(result).toEqual([
+        expect.objectContaining({
+          id: 'device-1',
+          customerName: 'Cliente 1',
+          siteName: 'Site 1',
+        }),
+      ]);
+      const typedFindMany = findMany as jest.Mock<
+        unknown,
+        [{ where: unknown }]
+      >;
+      expect(typedFindMany.mock.calls[0][0].where).toEqual({
+        organizationId: 'organization-1',
+      });
+    });
   });
 
-  it('retorna o contrato completo do check em lote', async () => {
+  describe('create', () => {
+    const validInput = {
+      name: 'Câmera portaria',
+      deviceType: 'CAMERA_IP',
+      host: 'camera.example.com',
+    };
+
+    it('busca o primeiro Site somente da organização informada', async () => {
+      const findFirst = jest.fn().mockResolvedValue({
+        id: 'site-1',
+        organizationId: 'organization-1',
+        customerId: 'customer-1',
+      });
+      const create = jest.fn().mockResolvedValue({ id: 'device-1' });
+      const scopedService = new DevicesService(
+        {
+          site: { findFirst },
+          device: { create },
+        } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
+
+      await scopedService.create('organization-1', validInput);
+
+      expect(findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { organizationId: 'organization-1' },
+        }),
+      );
+    });
+
+    it('usa o organizationId recebido pelo método no device.create, mesmo com Site mockado de forma inconsistente', async () => {
+      const findFirst = jest.fn().mockResolvedValue({
+        id: 'site-1',
+        organizationId: 'organization-INCONSISTENTE',
+        customerId: 'customer-1',
+      });
+      const create = jest.fn().mockResolvedValue({ id: 'device-1' });
+      const scopedService = new DevicesService(
+        {
+          site: { findFirst },
+          device: { create },
+        } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
+
+      await scopedService.create('organization-1', validInput);
+
+      expect(create).toHaveBeenCalledWith({
+        data: {
+          organizationId: 'organization-1',
+          customerId: 'customer-1',
+          siteId: 'site-1',
+          name: 'Câmera portaria',
+          deviceType: DeviceType.CAMERA_IP,
+          host: 'camera.example.com',
+          port: null,
+          checkType: CheckType.HTTP,
+          currentStatus: DeviceStatus.UNKNOWN,
+        },
+      });
+    });
+
+    it('falha com BadRequestException quando a organização não possui Site', async () => {
+      const findFirst = jest.fn().mockResolvedValue(null);
+      const scopedService = new DevicesService(
+        { site: { findFirst } } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
+
+      await expect(
+        scopedService.create('organization-1', validInput),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('não seleciona Site de outra organização', async () => {
+      const findFirst = jest.fn().mockResolvedValue(null);
+      const scopedService = new DevicesService(
+        { site: { findFirst } } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
+
+      await expect(
+        scopedService.create('organization-2', validInput),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { organizationId: 'organization-2' },
+        }),
+      );
+    });
+  });
+
+  describe('update', () => {
+    const existingDevice = {
+      id: 'device-1',
+      host: 'host.example.com',
+      port: null,
+      checkType: CheckType.HTTP,
+      name: 'Device',
+      deviceType: DeviceType.SERVER,
+      currentStatus: DeviceStatus.ONLINE,
+    };
+
+    it('busca inicial contém id + organizationId', async () => {
+      const findFirst = jest.fn().mockResolvedValue(null);
+      const scopedService = new DevicesService(
+        { device: { findFirst } } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
+
+      await expect(
+        scopedService.update('organization-1', 'device-1', {}),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(findFirst).toHaveBeenCalledWith({
+        where: { id: 'device-1', organizationId: 'organization-1' },
+      });
+    });
+
+    it('equipamento de outra organização resulta na mesma NotFoundException de equipamento inexistente', async () => {
+      const findFirst = jest.fn().mockResolvedValue(null);
+      const scopedService = new DevicesService(
+        { device: { findFirst } } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
+
+      await expect(
+        scopedService.update('organization-1', 'device-de-outra-org', {}),
+      ).rejects.toThrow('Equipamento não encontrado.');
+    });
+
+    it('updateMany contém id + organizationId, e count 0 gera NotFoundException', async () => {
+      const findFirst = jest.fn().mockResolvedValueOnce(existingDevice);
+      const updateMany = jest.fn().mockResolvedValue({ count: 0 });
+      const scopedService = new DevicesService(
+        { device: { findFirst, updateMany } } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
+
+      await expect(
+        scopedService.update('organization-1', 'device-1', {}),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'device-1', organizationId: 'organization-1' },
+        }),
+      );
+    });
+
+    it('consulta final com id + organizationId devolve o registro atualizado', async () => {
+      const updatedDevice = { ...existingDevice, name: 'Device renomeado' };
+      const findFirst = jest
+        .fn()
+        .mockResolvedValueOnce(existingDevice)
+        .mockResolvedValueOnce(updatedDevice);
+      const updateMany = jest.fn().mockResolvedValue({ count: 1 });
+      const scopedService = new DevicesService(
+        { device: { findFirst, updateMany } } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
+
+      const result = await scopedService.update('organization-1', 'device-1', {
+        name: 'Device renomeado',
+      });
+
+      expect(result).toEqual(updatedDevice);
+      expect(findFirst).toHaveBeenLastCalledWith({
+        where: { id: 'device-1', organizationId: 'organization-1' },
+      });
+    });
+
+    it('lança NotFoundException se a consulta final não encontrar o equipamento', async () => {
+      const findFirst = jest
+        .fn()
+        .mockResolvedValueOnce(existingDevice)
+        .mockResolvedValueOnce(null);
+      const updateMany = jest.fn().mockResolvedValue({ count: 1 });
+      const scopedService = new DevicesService(
+        { device: { findFirst, updateMany } } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
+
+      await expect(
+        scopedService.update('organization-1', 'device-1', {}),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('remove', () => {
+    it('usa deleteMany com id + organizationId', async () => {
+      const deleteMany = jest.fn().mockResolvedValue({ count: 1 });
+      const scopedService = new DevicesService(
+        { device: { deleteMany } } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
+
+      const result = await scopedService.remove('organization-1', 'device-1');
+
+      expect(deleteMany).toHaveBeenCalledWith({
+        where: { id: 'device-1', organizationId: 'organization-1' },
+      });
+      expect(result).toEqual({ success: true });
+    });
+
+    it('count 0 resulta em NotFoundException, sem busca global anterior', async () => {
+      const deleteMany = jest.fn().mockResolvedValue({ count: 0 });
+      const scopedService = new DevicesService(
+        { device: { deleteMany } } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
+
+      await expect(
+        scopedService.remove('organization-1', 'device-de-outra-org'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  describe('check', () => {
+    it('device.findFirst contém id + organizationId', async () => {
+      const findFirst = jest.fn().mockResolvedValue(null);
+      const scopedService = new DevicesService(
+        { device: { findFirst } } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
+
+      await expect(
+        scopedService.check('organization-1', 'device-1'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'device-1', organizationId: 'organization-1' },
+        }),
+      );
+    });
+
+    it('não verifica dispositivo de outra organização; runDeviceCheck não é chamado', async () => {
+      const findFirst = jest.fn().mockResolvedValue(null);
+      const scopedService = new DevicesService(
+        { device: { findFirst } } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
+      const runDeviceCheck = jest.fn();
+      (
+        scopedService as unknown as {
+          runDeviceCheck: typeof runDeviceCheck;
+        }
+      ).runDeviceCheck = runDeviceCheck;
+
+      await expect(
+        scopedService.check('organization-1', 'device-de-outra-org'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(runDeviceCheck).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getChecks', () => {
+    it('valida o Device com id + organizationId antes de consultar o histórico', async () => {
+      const findFirst = jest.fn().mockResolvedValue(null);
+      const findMany = jest.fn();
+      const scopedService = new DevicesService(
+        {
+          device: { findFirst },
+          checkResult: { findMany },
+        } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
+
+      await expect(
+        scopedService.getChecks('organization-1', 'device-1'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      expect(findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'device-1', organizationId: 'organization-1' },
+        }),
+      );
+      expect(findMany).not.toHaveBeenCalled();
+    });
+
+    it('filtra CheckResult por deviceId + organizationId, mantendo ordem decrescente e take 20', async () => {
+      const findFirst = jest.fn().mockResolvedValue({ id: 'device-1' });
+      const findMany = jest.fn().mockResolvedValue([]);
+      const scopedService = new DevicesService(
+        {
+          device: { findFirst },
+          checkResult: { findMany },
+        } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
+
+      await scopedService.getChecks('organization-1', 'device-1');
+
+      expect(findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { organizationId: 'organization-1', deviceId: 'device-1' },
+          orderBy: { checkedAt: 'desc' },
+          take: 20,
+        }),
+      );
+    });
+
+    it('dispositivo de outra organização retorna NotFoundException', async () => {
+      const findFirst = jest.fn().mockResolvedValue(null);
+      const scopedService = new DevicesService(
+        {
+          device: { findFirst },
+          checkResult: { findMany: jest.fn() },
+        } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
+
+      await expect(
+        scopedService.getChecks('organization-1', 'device-de-outra-org'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  it('retorna o contrato completo do check em lote da organização', async () => {
     const batchService = new DevicesService(
       {
         device: { findMany: jest.fn().mockResolvedValue([]) },
@@ -119,7 +491,9 @@ describe('DevicesService', () => {
       incidentsService,
     );
 
-    await expect(batchService.checkAll()).resolves.toEqual({
+    await expect(
+      batchService.checkAllForOrganization('organization-1'),
+    ).resolves.toEqual({
       success: true,
       total: 0,
       checked: 0,
@@ -144,10 +518,9 @@ describe('DevicesService', () => {
         port: 80,
         checkType: CheckType.HTTP,
       }));
+      const findMany = jest.fn().mockResolvedValue(devices);
       const batchService = new DevicesService(
-        {
-          device: { findMany: jest.fn().mockResolvedValue(devices) },
-        } as unknown as PrismaService,
+        { device: { findMany } } as unknown as PrismaService,
         notificationService,
         incidentsService,
       );
@@ -176,11 +549,17 @@ describe('DevicesService', () => {
         }
       ).runDeviceCheck = runDeviceCheck;
 
-      const batchPromise = batchService.checkAll();
+      const batchPromise =
+        batchService.checkAllForOrganization('organization-1');
       await firstWaveStarted;
 
       expect(runDeviceCheck).toHaveBeenCalledTimes(3);
       expect(maxActiveChecks).toBe(3);
+      expect(findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { organizationId: 'organization-1' },
+        }),
+      );
 
       releaseChecks();
       const summary = await batchPromise;
@@ -246,7 +625,9 @@ describe('DevicesService', () => {
       }
     ).runDeviceCheck = runDeviceCheck;
 
-    await expect(batchService.checkAll()).resolves.toEqual(
+    await expect(
+      batchService.checkAllForOrganization('organization-1'),
+    ).resolves.toEqual(
       expect.objectContaining({
         total: 2,
         checked: 2,
@@ -332,7 +713,9 @@ describe('DevicesService', () => {
       }
     ).performHttpCheck = performHttpCheck;
 
-    await expect(automaticService.checkAll('AUTOMATIC')).resolves.toEqual(
+    await expect(
+      automaticService.checkAllOrganizationsInternal('AUTOMATIC'),
+    ).resolves.toEqual(
       expect.objectContaining({
         checked: 1,
         online: 0,
@@ -365,6 +748,82 @@ describe('DevicesService', () => {
     );
   });
 
+  describe('checkAllForOrganization vs. checkAllOrganizationsInternal', () => {
+    it('lote da organização filtra device.findMany por organizationId', async () => {
+      const findMany = jest.fn().mockResolvedValue([]);
+      const scopedService = new DevicesService(
+        { device: { findMany } } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
+
+      await scopedService.checkAllForOrganization('organization-1');
+
+      expect(findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { organizationId: 'organization-1' },
+        }),
+      );
+    });
+
+    it('lote interno não filtra device.findMany por organizationId e continua verificando organizações diferentes', async () => {
+      const devices = [
+        {
+          id: 'device-org-1',
+          organizationId: 'organization-1',
+          customerId: 'customer-1',
+          siteId: 'site-1',
+          name: 'Device org 1',
+          host: 'host-1.example.com',
+          port: 80,
+          checkType: CheckType.HTTP,
+        },
+        {
+          id: 'device-org-2',
+          organizationId: 'organization-2',
+          customerId: 'customer-2',
+          siteId: 'site-2',
+          name: 'Device org 2',
+          host: 'host-2.example.com',
+          port: 80,
+          checkType: CheckType.HTTP,
+        },
+      ];
+      const findMany = jest.fn().mockResolvedValue(devices);
+      const internalService = new DevicesService(
+        { device: { findMany } } as unknown as PrismaService,
+        notificationService,
+        incidentsService,
+      );
+      const runDeviceCheck = jest
+        .fn()
+        .mockResolvedValue({ currentStatus: DeviceStatus.ONLINE });
+      (
+        internalService as unknown as {
+          runDeviceCheck: typeof runDeviceCheck;
+        }
+      ).runDeviceCheck = runDeviceCheck;
+
+      await internalService.checkAllOrganizationsInternal('AUTOMATIC');
+
+      const typedFindMany = findMany as jest.Mock<
+        unknown,
+        [{ where?: unknown }]
+      >;
+      expect(typedFindMany.mock.calls[0][0].where).toBeUndefined();
+      expect(runDeviceCheck).toHaveBeenCalledTimes(2);
+      const typedRunDeviceCheck = runDeviceCheck as jest.Mock<
+        unknown,
+        [unknown, string]
+      >;
+      const sources = typedRunDeviceCheck.mock.calls.map((call) => call[1]);
+      const allAutomatic = sources.every((source) =>
+        source.startsWith('AUTOMATIC:'),
+      );
+      expect(allAutomatic).toBe(true);
+    });
+  });
+
   it('envia um único alerta para checks concorrentes da mesma transição', async () => {
     const previousBotToken = process.env.TELEGRAM_BOT_TOKEN;
     const previousChatId = process.env.TELEGRAM_CHAT_ID;
@@ -379,6 +838,8 @@ describe('DevicesService', () => {
       const device = {
         id: 'device-concurrent',
         organizationId: 'organization-1',
+        customerId: 'customer-1',
+        siteId: 'site-1',
         name: 'DVR garagem',
         host: 'dvr.example.com',
         port: 9000,
@@ -423,7 +884,7 @@ describe('DevicesService', () => {
       );
       const concurrentService = new DevicesService(
         {
-          device: { findUnique: jest.fn().mockResolvedValue(device) },
+          device: { findFirst: jest.fn().mockResolvedValue(device) },
           $transaction: transaction,
         } as unknown as PrismaService,
         new NotificationService(),
@@ -442,8 +903,8 @@ describe('DevicesService', () => {
       ).performHttpCheck = performHttpCheck;
 
       await Promise.all([
-        concurrentService.check(device.id),
-        concurrentService.check(device.id),
+        concurrentService.check('organization-1', device.id),
+        concurrentService.check('organization-1', device.id),
       ]);
 
       expect(createCheckResult).toHaveBeenCalledTimes(2);

@@ -10,7 +10,8 @@ async function run() {
 
   try {
     const devicesService = app.get(DevicesService);
-    const summary = await devicesService.checkAll('AUTOMATIC');
+    const summary =
+      await devicesService.checkAllOrganizationsInternal('AUTOMATIC');
     console.log(JSON.stringify(summary));
   } finally {
     await app.close();

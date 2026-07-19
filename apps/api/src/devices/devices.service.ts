@@ -74,6 +74,18 @@ export class DevicesService {
     50,
   );
 
+  /**
+   * Único ponto de validação de organizationId para os métodos públicos de
+   * usuário. O fluxo interno global (checkAllOrganizationsInternal) não usa
+   * esta validação, pois propositalmente não está escopado a uma organização.
+   */
+  private requireOrganizationId(organizationId: string): string {
+    if (!organizationId || !organizationId.trim()) {
+      throw new BadRequestException('Organização inválida.');
+    }
+    return organizationId;
+  }
+
   private normalizeDeviceType(value: string) {
     const aliases: Record<string, DeviceType> = {
       HTTP: DeviceType.SERVER,
@@ -303,12 +315,15 @@ export class DevicesService {
     };
   }
 
-  async create(input: DeviceInput) {
+  async create(organizationId: string, input: DeviceInput) {
+    this.requireOrganizationId(organizationId);
+
     if (!input.name?.trim() || !input.deviceType || !input.host) {
       throw new BadRequestException('Nome, tipo e host são obrigatórios.');
     }
 
     const site = await this.prisma.site.findFirst({
+      where: { organizationId },
       orderBy: { createdAt: 'asc' },
       select: { id: true, organizationId: true, customerId: true },
     });
@@ -326,7 +341,11 @@ export class DevicesService {
 
     return this.prisma.device.create({
       data: {
-        organizationId: site.organizationId,
+        // Usa o organizationId recebido pelo método, nunca o valor devolvido
+        // pela consulta ao Site — mesmo que um mock inconsistente devolva
+        // outro organizationId, a organização de origem é sempre a do
+        // parâmetro validado, não a do resultado de uma query subsequente.
+        organizationId,
         customerId: site.customerId,
         siteId: site.id,
         name: input.name.trim(),
@@ -339,8 +358,12 @@ export class DevicesService {
     });
   }
 
-  async update(id: string, input: DeviceInput) {
-    const existing = await this.prisma.device.findUnique({ where: { id } });
+  async update(organizationId: string, id: string, input: DeviceInput) {
+    this.requireOrganizationId(organizationId);
+
+    const existing = await this.prisma.device.findFirst({
+      where: { id, organizationId },
+    });
     if (!existing) throw new NotFoundException('Equipamento não encontrado.');
 
     const address = this.normalizeAddress(
@@ -352,8 +375,8 @@ export class DevicesService {
     );
     this.validatePortForCheck(checkType, address.port);
 
-    return this.prisma.device.update({
-      where: { id },
+    const updated = await this.prisma.device.updateMany({
+      where: { id, organizationId },
       data: {
         name: input.name?.trim() || existing.name,
         deviceType: input.deviceType
@@ -367,21 +390,40 @@ export class DevicesService {
           : existing.currentStatus,
       },
     });
+
+    if (updated.count !== 1) {
+      throw new NotFoundException('Equipamento não encontrado.');
+    }
+
+    const device = await this.prisma.device.findFirst({
+      where: { id, organizationId },
+    });
+    if (!device) {
+      throw new NotFoundException('Equipamento não encontrado.');
+    }
+
+    return device;
   }
 
-  async remove(id: string) {
-    const existing = await this.prisma.device.findUnique({
-      where: { id },
-      select: { id: true },
-    });
-    if (!existing) throw new NotFoundException('Equipamento não encontrado.');
+  async remove(organizationId: string, id: string) {
+    this.requireOrganizationId(organizationId);
 
-    await this.prisma.device.delete({ where: { id } });
+    const deleted = await this.prisma.device.deleteMany({
+      where: { id, organizationId },
+    });
+
+    if (deleted.count !== 1) {
+      throw new NotFoundException('Equipamento não encontrado.');
+    }
+
     return { success: true };
   }
 
-  async findAll() {
+  async findAll(organizationId: string) {
+    this.requireOrganizationId(organizationId);
+
     const devices = await this.prisma.device.findMany({
+      where: { organizationId },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -584,9 +626,11 @@ export class DevicesService {
     };
   }
 
-  async check(id: string) {
-    const device = await this.prisma.device.findUnique({
-      where: { id },
+  async check(organizationId: string, id: string) {
+    this.requireOrganizationId(organizationId);
+
+    const device = await this.prisma.device.findFirst({
+      where: { id, organizationId },
       select: {
         id: true,
         organizationId: true,
@@ -603,15 +647,17 @@ export class DevicesService {
     return this.runDeviceCheck(device, 'MANUAL');
   }
 
-  async getChecks(id: string) {
-    const device = await this.prisma.device.findUnique({
-      where: { id },
+  async getChecks(organizationId: string, id: string) {
+    this.requireOrganizationId(organizationId);
+
+    const device = await this.prisma.device.findFirst({
+      where: { id, organizationId },
       select: { id: true },
     });
     if (!device) throw new NotFoundException('Equipamento não encontrado.');
 
     return this.prisma.checkResult.findMany({
-      where: { deviceId: id },
+      where: { organizationId, deviceId: id },
       orderBy: { checkedAt: 'desc' },
       take: 20,
       select: {
@@ -626,20 +672,16 @@ export class DevicesService {
     });
   }
 
-  async checkAll(source: 'BATCH' | 'AUTOMATIC' = 'BATCH') {
+  /**
+   * Executor de lote compartilhado. Recebe a lista de devices já carregada
+   * (escopada por organização ou global, conforme o chamador) e não decide
+   * por conta própria qual conjunto de devices verificar.
+   */
+  private async executeBatch(
+    devices: CheckableDevice[],
+    source: 'BATCH' | 'AUTOMATIC',
+  ) {
     const runSource = `${source}:${randomUUID()}`;
-    const devices = await this.prisma.device.findMany({
-      select: {
-        id: true,
-        organizationId: true,
-        customerId: true,
-        siteId: true,
-        name: true,
-        host: true,
-        port: true,
-        checkType: true,
-      },
-    });
 
     const results: Array<DeviceStatus | null> = Array.from(
       { length: devices.length },
@@ -709,5 +751,54 @@ export class DevicesService {
       warning,
       message: `${checked} de ${devices.length} equipamentos verificados: ${online} online, ${offline} offline e ${warning} em atenção.`,
     };
+  }
+
+  /**
+   * Lote de usuário: verifica somente os equipamentos da organização
+   * autenticada. Usado por POST /devices/check-all.
+   */
+  async checkAllForOrganization(organizationId: string) {
+    this.requireOrganizationId(organizationId);
+
+    const devices = await this.prisma.device.findMany({
+      where: { organizationId },
+      select: {
+        id: true,
+        organizationId: true,
+        customerId: true,
+        siteId: true,
+        name: true,
+        host: true,
+        port: true,
+        checkType: true,
+      },
+    });
+
+    return this.executeBatch(devices, 'BATCH');
+  }
+
+  /**
+   * Lote interno da plataforma: verifica os equipamentos de todas as
+   * organizações. Não deve depender de cookie, usuário ou guard — é chamado
+   * por monitor-once.ts e pelo endpoint administrativo protegido por
+   * @Roles(MASTER). Não deve ser exposto como opção ao usuário comum.
+   */
+  async checkAllOrganizationsInternal(
+    source: 'BATCH' | 'AUTOMATIC' = 'AUTOMATIC',
+  ) {
+    const devices = await this.prisma.device.findMany({
+      select: {
+        id: true,
+        organizationId: true,
+        customerId: true,
+        siteId: true,
+        name: true,
+        host: true,
+        port: true,
+        checkType: true,
+      },
+    });
+
+    return this.executeBatch(devices, source);
   }
 }
