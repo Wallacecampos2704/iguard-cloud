@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
+import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
 
 const DEV_ORIGIN = 'http://localhost:3000';
@@ -19,6 +20,8 @@ function parseOrigins(value: string | undefined): string[] {
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  app.use(cookieParser());
 
   const isProduction = process.env.NODE_ENV === 'production';
   const configuredOrigins = parseOrigins(process.env.CORS_ORIGIN);

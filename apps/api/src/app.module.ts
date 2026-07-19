@@ -10,6 +10,7 @@ import { ChecksModule } from './checks/checks.module';
 import { EventsModule } from './events/events.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { IncidentsModule } from './incidents/incidents.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { IncidentsModule } from './incidents/incidents.module';
     EventsModule,
     NotificationsModule,
     IncidentsModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
