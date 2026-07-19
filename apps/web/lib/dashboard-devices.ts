@@ -1,3 +1,5 @@
+import { authenticatedApiFetch } from "@/lib/api-auth";
+
 export type ApiDeviceStatus =
   | "ONLINE"
   | "WARNING"
@@ -23,8 +25,6 @@ export interface DashboardDevicesResult {
   data: DashboardDevice[];
   hasError: boolean;
 }
-
-export const DEVICES_URL = `${process.env.API_URL ?? "http://localhost:4000"}/devices`;
 
 function isDeviceStatus(value: unknown): value is ApiDeviceStatus {
   return (
@@ -69,9 +69,15 @@ function isDashboardDevice(
 
 export async function getDashboardDevices(): Promise<DashboardDevicesResult> {
   try {
-    const response = await fetch(DEVICES_URL, {
+    const result = await authenticatedApiFetch("/devices", {
       cache: "no-store",
     });
+
+    if (!result.ok) {
+      return { data: [], hasError: true };
+    }
+
+    const { response } = result;
 
     if (!response.ok) {
       return { data: [], hasError: true };

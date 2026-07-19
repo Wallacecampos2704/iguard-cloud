@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { DEVICES_URL } from "@/lib/dashboard-devices";
+import { authenticatedApiFetch } from "@/lib/api-auth";
 
 export type DeviceActionResult = {
   success: boolean;
@@ -37,6 +37,9 @@ const DEVICE_TYPES = [
 ] as const;
 const DEVICE_STATUSES = ["ONLINE", "WARNING", "OFFLINE"] as const;
 const CHECK_TYPES = ["HTTP", "HTTPS", "TCP_PORT", "RTSP", "PING"] as const;
+
+const SESSION_EXPIRED_MESSAGE = "Sua sessão expirou. Entre novamente.";
+const FORBIDDEN_MESSAGE = "Você não tem permissão para esta ação.";
 
 function getApiErrorMessage(payload: unknown, fallback: string) {
   if (typeof payload === "object" && payload !== null && "message" in payload) {
@@ -88,8 +91,61 @@ function readDeviceForm(formData: FormData) {
   return { payload: { name, deviceType, host, port, currentStatus, checkType } };
 }
 
+type DeviceApiResponse =
+  | { ok: true; response: Response }
+  | { ok: false; result: DeviceActionResult };
+
+/**
+ * Centraliza a chamada autenticada e a distinção entre sessão ausente/expirada
+ * (401), falta de permissão (403) e demais erros da API, para que nenhum
+ * fluxo classifique 401/403 como simples falha de conexão.
+ */
+async function callDeviceApi(
+  path: `/${string}`,
+  init: RequestInit,
+  fallbackMessage: string,
+): Promise<DeviceApiResponse> {
+  const result = await authenticatedApiFetch(path, init);
+
+  if (!result.ok) {
+    return {
+      ok: false,
+      result: { success: false, message: SESSION_EXPIRED_MESSAGE },
+    };
+  }
+
+  const { response } = result;
+
+  if (response.status === 401) {
+    return {
+      ok: false,
+      result: { success: false, message: SESSION_EXPIRED_MESSAGE },
+    };
+  }
+
+  if (response.status === 403) {
+    return {
+      ok: false,
+      result: { success: false, message: FORBIDDEN_MESSAGE },
+    };
+  }
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    return {
+      ok: false,
+      result: {
+        success: false,
+        message: getApiErrorMessage(payload, fallbackMessage),
+      },
+    };
+  }
+
+  return { ok: true, response };
+}
+
 async function mutateDevice(
-  url: string,
+  path: `/${string}`,
   method: "POST" | "PATCH",
   formData: FormData,
 ): Promise<DeviceActionResult> {
@@ -99,18 +155,16 @@ async function mutateDevice(
   }
 
   try {
-    const response = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(parsed.payload),
-    });
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      return {
-        success: false,
-        message: getApiErrorMessage(payload, "Não foi possível salvar o equipamento."),
-      };
-    }
+    const outcome = await callDeviceApi(
+      path,
+      {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(parsed.payload),
+      },
+      "Não foi possível salvar o equipamento.",
+    );
+    if (!outcome.ok) return outcome.result;
 
     revalidatePath("/equipamentos");
     revalidatePath("/dashboard");
@@ -127,12 +181,12 @@ async function mutateDevice(
 }
 
 export async function createDevice(formData: FormData) {
-  return await mutateDevice(DEVICES_URL, "POST", formData);
+  return await mutateDevice("/devices", "POST", formData);
 }
 
 export async function updateDevice(id: string, formData: FormData) {
   return await mutateDevice(
-    `${DEVICES_URL}/${encodeURIComponent(id)}`,
+    `/devices/${encodeURIComponent(id)}`,
     "PATCH",
     formData,
   );
@@ -140,16 +194,13 @@ export async function updateDevice(id: string, formData: FormData) {
 
 export async function deleteDevice(id: string): Promise<DeviceActionResult> {
   try {
-    const response = await fetch(`${DEVICES_URL}/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    });
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      return {
-        success: false,
-        message: getApiErrorMessage(payload, "Não foi possível excluir o equipamento."),
-      };
-    }
+    const outcome = await callDeviceApi(
+      `/devices/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+      "Não foi possível excluir o equipamento.",
+    );
+    if (!outcome.ok) return outcome.result;
+
     revalidatePath("/equipamentos");
     revalidatePath("/dashboard");
     return { success: true, message: "Equipamento excluído com sucesso." };
@@ -160,16 +211,13 @@ export async function deleteDevice(id: string): Promise<DeviceActionResult> {
 
 export async function checkDevice(id: string): Promise<DeviceActionResult> {
   try {
-    const response = await fetch(`${DEVICES_URL}/${encodeURIComponent(id)}/check`, {
-      method: "POST",
-    });
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      return {
-        success: false,
-        message: getApiErrorMessage(payload, "Não foi possível verificar o equipamento."),
-      };
-    }
+    const outcome = await callDeviceApi(
+      `/devices/${encodeURIComponent(id)}/check`,
+      { method: "POST" },
+      "Não foi possível verificar o equipamento.",
+    );
+    if (!outcome.ok) return outcome.result;
+
     revalidatePath("/equipamentos");
     revalidatePath("/dashboard");
     return { success: true, message: "Verificação concluída e status atualizado." };
@@ -183,16 +231,14 @@ export async function checkDevice(id: string): Promise<DeviceActionResult> {
 
 export async function checkAllDevices(): Promise<DeviceActionResult> {
   try {
-    const response = await fetch(`${DEVICES_URL}/check-all`, { method: "POST" });
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      return {
-        success: false,
-        message: getApiErrorMessage(payload, "Não foi possível verificar os equipamentos."),
-      };
-    }
+    const outcome = await callDeviceApi(
+      "/devices/check-all",
+      { method: "POST" },
+      "Não foi possível verificar os equipamentos.",
+    );
+    if (!outcome.ok) return outcome.result;
 
-    const summary = (await response.json()) as {
+    const summary = (await outcome.response.json()) as {
       success?: boolean;
       total?: number;
       checked?: number;
@@ -219,19 +265,14 @@ export async function checkAllDevices(): Promise<DeviceActionResult> {
 
 export async function getDeviceChecks(id: string): Promise<DeviceHistoryResult> {
   try {
-    const response = await fetch(`${DEVICES_URL}/${encodeURIComponent(id)}/checks`, {
-      cache: "no-store",
-    });
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      return {
-        success: false,
-        message: getApiErrorMessage(payload, "Não foi possível carregar o histórico."),
-        data: [],
-      };
-    }
+    const outcome = await callDeviceApi(
+      `/devices/${encodeURIComponent(id)}/checks`,
+      { cache: "no-store" },
+      "Não foi possível carregar o histórico.",
+    );
+    if (!outcome.ok) return { ...outcome.result, data: [] };
 
-    const payload = (await response.json()) as DeviceCheckHistoryItem[];
+    const payload = (await outcome.response.json()) as DeviceCheckHistoryItem[];
     return {
       success: true,
       message: "Histórico carregado.",
