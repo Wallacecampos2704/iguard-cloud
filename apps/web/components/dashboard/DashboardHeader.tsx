@@ -1,4 +1,7 @@
 import { Badge } from "@/components/ui/Badge";
+import { LogoutButton } from "@/components/auth/LogoutButton";
+import { logout } from "@/app/logout/actions";
+import { getCurrentUser, type AuthenticatedUser } from "@/lib/auth";
 import { DEMO_MODE_ENABLED } from "@/lib/demo-mode";
 
 export type DashboardIdentity = {
@@ -7,6 +10,21 @@ export type DashboardIdentity = {
   email?: string | null;
   initials?: string;
 };
+
+const ROLE_LABELS: Record<AuthenticatedUser["role"], string> = {
+  MASTER: "Master",
+  ADMIN: "Administrador",
+  OPERATOR: "Operador",
+  VIEWER: "Visualizador",
+};
+
+function toDashboardIdentity(user: AuthenticatedUser): DashboardIdentity {
+  return {
+    name: user.name,
+    email: user.email,
+    role: ROLE_LABELS[user.role],
+  };
+}
 
 interface DashboardHeaderProps {
   title?: string;
@@ -39,14 +57,21 @@ function getInitials(identity: DashboardIdentity) {
     .join("");
 }
 
-export function DashboardHeader({
+export async function DashboardHeader({
   title = "Visão geral",
   description = "Operação de monitoramento em tempo real",
   identity,
   demoMode = DEMO_MODE_ENABLED,
 }: DashboardHeaderProps) {
-  const currentIdentity =
-    identity ?? (demoMode ? demoIdentity : productionIdentity);
+  const authenticatedUser = demoMode ? null : await getCurrentUser();
+
+  const currentIdentity = demoMode
+    ? demoIdentity
+    : authenticatedUser
+      ? toDashboardIdentity(authenticatedUser)
+      : (identity ?? productionIdentity);
+
+  const showLogout = Boolean(authenticatedUser);
 
   return (
     <header className="flex min-h-16 items-center justify-between gap-4 border-b border-border bg-surface/80 px-4 py-3 backdrop-blur-sm sm:px-8">
@@ -68,6 +93,11 @@ export function DashboardHeader({
             {getInitials(currentIdentity)}
           </div>
         </div>
+        {showLogout && (
+          <form action={logout}>
+            <LogoutButton />
+          </form>
+        )}
       </div>
     </header>
   );
