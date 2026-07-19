@@ -13,6 +13,7 @@ import {
   type IncidentSeverity,
   type IncidentStatus,
 } from "@/lib/incidents";
+import { requireAuthenticatedPage } from "@/lib/auth";
 
 const severityLabels: Record<IncidentSeverity, string> = {
   LOW: "Baixa",
@@ -72,6 +73,8 @@ function getSiteName(incident: Incident) {
 }
 
 export default async function IncidentesPage() {
+  await requireAuthenticatedPage();
+
   const { data: incidents, hasError, fetchedAt } = await getIncidents();
 
   return (

@@ -15,6 +15,7 @@ import {
   type NotificationStatus,
   type NotificationType,
 } from "@/lib/notifications";
+import { requireAuthenticatedPage } from "@/lib/auth";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -290,6 +291,8 @@ export default async function NotificacoesPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
+  await requireAuthenticatedPage();
+
   const params = await searchParams;
   const page = parsePositiveInteger(readValue(params.page), 1);
   const requestedPageSize = parsePositiveInteger(

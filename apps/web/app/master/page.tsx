@@ -3,8 +3,11 @@ import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { platformStats, organizationsList } from "@/lib/mock-data";
+import { requireAuthenticatedPage } from "@/lib/auth";
 
-export default function MasterPage() {
+export default async function MasterPage() {
+  await requireAuthenticatedPage();
+
   const statusColors: Record<string, string> = {
     active: "bg-green-500/20 text-green-400 border-green-500/30",
     trial: "bg-blue-500/20 text-blue-400 border-blue-500/30",

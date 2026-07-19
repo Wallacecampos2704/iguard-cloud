@@ -3,8 +3,11 @@ import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { clientsList } from "@/lib/mock-data";
+import { requireAuthenticatedPage } from "@/lib/auth";
 
-export default function ClientesPage() {
+export default async function ClientesPage() {
+  await requireAuthenticatedPage();
+
   const planColors: Record<string, string> = {
     starter: "bg-blue-500/20 text-blue-400 border-blue-500/30",
     professional: "bg-purple-500/20 text-purple-400 border-purple-500/30",

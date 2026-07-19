@@ -3,8 +3,11 @@ import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { Sidebar } from "@/components/dashboard/Sidebar";
 import { Card } from "@/components/ui/Card";
 import { getNotificationPreferences } from "@/lib/notification-preferences";
+import { requireAuthenticatedPage } from "@/lib/auth";
 
 export default async function AlertasPage() {
+  await requireAuthenticatedPage();
+
   const { data: preferences, hasError } =
     await getNotificationPreferences();
 

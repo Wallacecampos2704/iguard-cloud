@@ -2,6 +2,7 @@ import { Sidebar } from "@/components/dashboard/Sidebar";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { EquipmentManager } from "@/components/equipment/EquipmentManager";
 import { getDashboardDevices } from "@/lib/dashboard-devices";
+import { requireAuthenticatedPage } from "@/lib/auth";
 
 type EquipmentSearchParams = Record<string, string | string[] | undefined>;
 
@@ -14,6 +15,8 @@ export default async function EquipamentosPage({
 }: {
   searchParams: Promise<EquipmentSearchParams>;
 }) {
+  await requireAuthenticatedPage();
+
   const params = await searchParams;
   const { data: devices, hasError } = await getDashboardDevices();
   const errorMessage = readSearchParam(params.error);

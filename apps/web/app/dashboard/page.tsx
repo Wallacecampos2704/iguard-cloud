@@ -8,8 +8,11 @@ import { IncidentsList } from "@/components/dashboard/IncidentsList";
 import { IncidentStatCards } from "@/components/dashboard/IncidentStatCards";
 import { getDashboardSummary } from "@/lib/dashboard-summary";
 import { getIncidents } from "@/lib/incidents";
+import { requireAuthenticatedPage } from "@/lib/auth";
 
 export default async function DashboardPage() {
+  await requireAuthenticatedPage();
+
   const [summaryResult, incidentsResult] = await Promise.all([
     getDashboardSummary(),
     getIncidents(),

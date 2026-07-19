@@ -2,6 +2,7 @@ import { Sidebar } from "@/components/dashboard/Sidebar";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { requireAuthenticatedPage } from "@/lib/auth";
 
 interface HelpTopic {
   id: string;
@@ -112,7 +113,9 @@ const helpTopics: HelpTopic[] = [
   },
 ];
 
-export default function CentralAjudaPage() {
+export default async function CentralAjudaPage() {
+  await requireAuthenticatedPage();
+
   const categoryColors: Record<string, string> = {
     "getting-started": "bg-blue-500/20 text-blue-400 border-blue-500/30",
     concepts: "bg-purple-500/20 text-purple-400 border-purple-500/30",

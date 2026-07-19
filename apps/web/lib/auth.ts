@@ -1,7 +1,14 @@
 // O pacote "server-only" não está instalado neste projeto; a proteção contra
 // uso em Client Components já vem de `cookies()` (next/headers) e de
 // `API_URL` não ter prefixo NEXT_PUBLIC_, ambos inutilizáveis no browser.
+import { cache } from "react";
 import { cookies } from "next/headers.js";
+import { redirect } from "next/navigation.js";
+
+// Checagem embutida (em vez de importar "@/lib/demo-mode") para evitar um
+// import relativo local sem extensão, que quebraria a resolução ESM do
+// `node --test` fora do bundler do Next. Mesma expressão de lib/demo-mode.ts.
+const DEMO_MODE_ENABLED = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
 export const API_URL = process.env.API_URL ?? "http://localhost:4000";
 export const AUTH_COOKIE_NAME = "iguard_session";
@@ -103,29 +110,56 @@ export function extractSessionCookieValue(
   return value;
 }
 
-export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
+/**
+ * Memoizado por requisição via React `cache()`: várias chamadas durante a
+ * mesma renderização (ex.: a página protegida e o DashboardHeader) resolvem
+ * para o mesmo resultado sem repetir a chamada à API. Não persiste entre
+ * requisições distintas nem entre usuários.
+ */
+export const getCurrentUser = cache(
+  async (): Promise<AuthenticatedUser | null> => {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
 
-  if (!token) {
-    return null;
-  }
-
-  try {
-    const response = await fetch(`${API_URL}/auth/me`, {
-      cache: "no-store",
-      headers: {
-        Cookie: `${AUTH_COOKIE_NAME}=${token}`,
-      },
-    });
-
-    if (!response.ok) {
+    if (!token) {
       return null;
     }
 
-    const payload = (await response.json()) as { user?: unknown };
-    return toAuthenticatedUser(payload.user);
-  } catch {
-    return null;
+    try {
+      const response = await fetch(`${API_URL}/auth/me`, {
+        cache: "no-store",
+        headers: {
+          Cookie: `${AUTH_COOKIE_NAME}=${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const payload = (await response.json()) as { user?: unknown };
+      return toAuthenticatedUser(payload.user);
+    } catch {
+      return null;
+    }
+  },
+);
+
+/**
+ * Protege uma página de Server Component: fora do modo demo, exige uma
+ * sessão válida e redireciona para /login quando ausente. Não altera
+ * cookies — Server Components não devem modificar cookies nesta etapa.
+ */
+export async function requireAuthenticatedPage(): Promise<void> {
+  if (DEMO_MODE_ENABLED) {
+    return;
   }
+
+  const user = await getCurrentUser();
+
+  if (user) {
+    return;
+  }
+
+  redirect("/login");
 }

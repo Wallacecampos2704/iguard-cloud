@@ -3,8 +3,11 @@ import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { plans, invoicesList } from "@/lib/mock-data";
+import { requireAuthenticatedPage } from "@/lib/auth";
 
-export default function FaturamentoPage() {
+export default async function FaturamentoPage() {
+  await requireAuthenticatedPage();
+
   const currentPlan = plans[0]; // Trial
 
   return (
