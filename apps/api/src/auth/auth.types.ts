@@ -1,3 +1,4 @@
+import type { Request } from 'express';
 import type { UserRole } from '@prisma/client';
 
 export type LoginInput = {
@@ -23,4 +24,8 @@ export type AuthenticatedUser = {
 export type LoginResult = {
   sessionToken: string;
   user: AuthenticatedUser;
+};
+
+export type AuthenticatedRequest = Request & {
+  user?: AuthenticatedUser;
 };

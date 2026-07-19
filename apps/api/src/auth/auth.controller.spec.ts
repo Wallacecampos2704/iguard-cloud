@@ -1,8 +1,11 @@
-import { HTTP_CODE_METADATA } from '@nestjs/common/constants';
+import { GUARDS_METADATA, HTTP_CODE_METADATA } from '@nestjs/common/constants';
 import type { Request, Response } from 'express';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { AUTH_COOKIE_MAX_AGE_MS, AUTH_COOKIE_NAME } from './auth.constants';
+import { IS_PUBLIC_KEY } from './public.decorator';
+import { SessionGuard } from './session.guard';
+import type { AuthenticatedUser } from './auth.types';
 
 function buildResponse() {
   const cookie = jest.fn();
@@ -103,18 +106,11 @@ describe('AuthController', () => {
     );
   });
 
-  it('me lê o cookie de sessão correto e devolve o usuário autenticado', async () => {
-    const validateSession = jest.fn().mockResolvedValue(safeUser);
-    const controller = new AuthController({
-      validateSession,
-    } as unknown as AuthService);
-    const request = {
-      cookies: { [AUTH_COOKIE_NAME]: 'cookie-token', other: 'ignored' },
-    } as unknown as Request;
+  it('me devolve o usuário que o SessionGuard anexou à requisição', () => {
+    const controller = new AuthController({} as unknown as AuthService);
 
-    const result = await controller.me(request);
+    const result = controller.me(safeUser as unknown as AuthenticatedUser);
 
-    expect(validateSession).toHaveBeenCalledWith('cookie-token');
     expect(result).toEqual({ user: safeUser });
   });
 
@@ -161,5 +157,39 @@ describe('AuthController', () => {
     ) as number;
 
     expect(status).toBe(204);
+  });
+
+  it('aplica SessionGuard somente na rota GET /auth/me', () => {
+    const prototype = AuthController.prototype as unknown as Record<
+      string,
+      unknown
+    >;
+
+    const meGuards = Reflect.getMetadata(GUARDS_METADATA, prototype.me) as
+      | unknown[]
+      | undefined;
+    const loginGuards = Reflect.getMetadata(
+      GUARDS_METADATA,
+      prototype.login,
+    ) as unknown[] | undefined;
+    const logoutGuards = Reflect.getMetadata(
+      GUARDS_METADATA,
+      prototype.logout,
+    ) as unknown[] | undefined;
+
+    expect(meGuards).toContain(SessionGuard);
+    expect(loginGuards ?? []).not.toContain(SessionGuard);
+    expect(logoutGuards ?? []).not.toContain(SessionGuard);
+  });
+
+  it('marca login e logout como públicos, e não marca me como público', () => {
+    const prototype = AuthController.prototype as unknown as Record<
+      string,
+      unknown
+    >;
+
+    expect(Reflect.getMetadata(IS_PUBLIC_KEY, prototype.login)).toBe(true);
+    expect(Reflect.getMetadata(IS_PUBLIC_KEY, prototype.logout)).toBe(true);
+    expect(Reflect.getMetadata(IS_PUBLIC_KEY, prototype.me)).toBeUndefined();
   });
 });

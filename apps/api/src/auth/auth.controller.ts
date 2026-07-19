@@ -7,11 +7,15 @@ import {
   Post,
   Req,
   Res,
+  UseGuards,
 } from '@nestjs/common';
 import type { CookieOptions, Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { AUTH_COOKIE_MAX_AGE_MS, AUTH_COOKIE_NAME } from './auth.constants';
-import type { LoginInput } from './auth.types';
+import { CurrentUser } from './current-user.decorator';
+import { Public } from './public.decorator';
+import { SessionGuard } from './session.guard';
+import type { AuthenticatedUser, LoginInput } from './auth.types';
 
 function buildCookieOptions(): CookieOptions {
   return {
@@ -35,6 +39,7 @@ function readSessionCookie(request: Request): string | undefined {
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @Public()
   @Post('login')
   async login(
     @Body() body: LoginInput,
@@ -54,15 +59,13 @@ export class AuthController {
     return { user: result.user };
   }
 
+  @UseGuards(SessionGuard)
   @Get('me')
-  async me(@Req() request: Request) {
-    const user = await this.authService.validateSession(
-      readSessionCookie(request),
-    );
-
+  me(@CurrentUser() user: AuthenticatedUser) {
     return { user };
   }
 
+  @Public()
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
   async logout(
