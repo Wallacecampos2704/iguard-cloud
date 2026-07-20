@@ -1,3 +1,5 @@
+import { authenticatedApiFetch } from "@/lib/api-auth";
+
 export type IncidentSeverity = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 export type IncidentStatus = "OPEN" | "ACKNOWLEDGED" | "RESOLVED";
 
@@ -37,13 +39,19 @@ export type IncidentsResult = {
   fetchedAt: number;
 };
 
-export const INCIDENTS_URL = `${process.env.API_URL ?? "http://localhost:4000"}/incidents`;
-
 export async function getIncidents(): Promise<IncidentsResult> {
   const fetchedAt = Date.now();
 
   try {
-    const response = await fetch(INCIDENTS_URL, { cache: "no-store" });
+    const result = await authenticatedApiFetch("/incidents", {
+      cache: "no-store",
+    });
+
+    if (!result.ok) {
+      return { data: [], hasError: true, fetchedAt };
+    }
+
+    const { response } = result;
 
     if (!response.ok) {
       return { data: [], hasError: true, fetchedAt };
