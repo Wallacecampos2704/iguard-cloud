@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   DeviceStatus,
   DeviceType,
@@ -11,6 +15,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 
 export type DeviceStatusChangeInput = {
+  organizationId: string;
   deviceId: string;
   previousStatus: DeviceStatus;
   currentStatus: DeviceStatus;
@@ -38,16 +43,59 @@ const INCIDENT_INCLUDE = {
 export class IncidentsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll() {
+  /**
+   * Única validação de organizationId para os métodos de usuário e para o
+   * ciclo interno — não há caso legítimo de um Device persistido sem
+   * organização, então o ciclo automático também passa por aqui.
+   */
+  private requireOrganizationId(organizationId: string): string {
+    if (!organizationId || !organizationId.trim()) {
+      throw new BadRequestException('Organização inválida.');
+    }
+    return organizationId;
+  }
+
+  /**
+   * Escopo multi-tenant reutilizável. Além do organizationId direto do
+   * Incident, aplica defesa em profundidade nas relações opcionais
+   * (device/customer/site): se a relação existir, o registro relacionado
+   * precisa pertencer à mesma organização, evitando que uma inconsistência
+   * de dados exponha um Incident através de uma relação de outra empresa.
+   */
+  private buildOrganizationScope(
+    organizationId: string,
+  ): Prisma.IncidentWhereInput {
+    return {
+      organizationId,
+      AND: [
+        {
+          OR: [{ deviceId: null }, { device: { is: { organizationId } } }],
+        },
+        {
+          OR: [{ customerId: null }, { customer: { is: { organizationId } } }],
+        },
+        {
+          OR: [{ siteId: null }, { site: { is: { organizationId } } }],
+        },
+      ],
+    };
+  }
+
+  async findAll(organizationId: string) {
+    this.requireOrganizationId(organizationId);
+
     return this.prisma.incident.findMany({
+      where: this.buildOrganizationScope(organizationId),
       include: INCIDENT_INCLUDE,
       orderBy: [{ startedAt: 'desc' }, { createdAt: 'desc' }],
     });
   }
 
-  async findOne(id: string) {
-    const incident = await this.prisma.incident.findUnique({
-      where: { id },
+  async findOne(organizationId: string, id: string) {
+    this.requireOrganizationId(organizationId);
+
+    const incident = await this.prisma.incident.findFirst({
+      where: { id, ...this.buildOrganizationScope(organizationId) },
       include: INCIDENT_INCLUDE,
     });
 
@@ -58,23 +106,31 @@ export class IncidentsService {
     return incident;
   }
 
-  async acknowledge(id: string) {
-    const incident = await this.findOne(id);
+  async acknowledge(organizationId: string, id: string) {
+    this.requireOrganizationId(organizationId);
+
+    const incident = await this.findOne(organizationId, id);
 
     if (incident.status !== IncidentStatus.OPEN) {
       return incident;
     }
 
     await this.prisma.incident.updateMany({
-      where: { id, status: IncidentStatus.OPEN },
+      where: {
+        id,
+        ...this.buildOrganizationScope(organizationId),
+        status: IncidentStatus.OPEN,
+      },
       data: { status: IncidentStatus.ACKNOWLEDGED },
     });
 
-    return this.findOne(id);
+    return this.findOne(organizationId, id);
   }
 
-  async resolve(id: string) {
-    const incident = await this.findOne(id);
+  async resolve(organizationId: string, id: string) {
+    this.requireOrganizationId(organizationId);
+
+    const incident = await this.findOne(organizationId, id);
 
     if (incident.status === IncidentStatus.RESOLVED) {
       return incident;
@@ -82,7 +138,11 @@ export class IncidentsService {
 
     const resolvedAt = new Date();
     await this.prisma.incident.updateMany({
-      where: { id, status: { in: ACTIVE_INCIDENT_STATUSES } },
+      where: {
+        id,
+        ...this.buildOrganizationScope(organizationId),
+        status: { in: ACTIVE_INCIDENT_STATUSES },
+      },
       data: {
         status: IncidentStatus.RESOLVED,
         resolvedAt,
@@ -90,13 +150,15 @@ export class IncidentsService {
       },
     });
 
-    return this.findOne(id);
+    return this.findOne(organizationId, id);
   }
 
   async handleDeviceStatusChange(
     transaction: Prisma.TransactionClient,
     input: DeviceStatusChangeInput,
   ): Promise<IncidentLifecycleResult | null> {
+    const organizationId = this.requireOrganizationId(input.organizationId);
+
     const isUnhealthy =
       input.currentStatus === DeviceStatus.OFFLINE ||
       input.currentStatus === DeviceStatus.WARNING;
@@ -107,6 +169,7 @@ export class IncidentsService {
 
     const activeIncident = await transaction.incident.findFirst({
       where: {
+        organizationId,
         deviceId: input.deviceId,
         status: { in: ACTIVE_INCIDENT_STATUSES },
       },
@@ -118,6 +181,7 @@ export class IncidentsService {
         const touchedIncident = await transaction.incident.updateMany({
           where: {
             id: activeIncident.id,
+            organizationId,
             status: { in: ACTIVE_INCIDENT_STATUSES },
           },
           data: {
@@ -137,8 +201,8 @@ export class IncidentsService {
         return null;
       }
 
-      const device = await transaction.device.findUnique({
-        where: { id: input.deviceId },
+      const device = await transaction.device.findFirst({
+        where: { id: input.deviceId, organizationId },
         select: {
           organizationId: true,
           customerId: true,
@@ -186,6 +250,7 @@ export class IncidentsService {
     const resolved = await transaction.incident.updateMany({
       where: {
         id: activeIncident.id,
+        organizationId,
         status: { in: ACTIVE_INCIDENT_STATUSES },
       },
       data: {

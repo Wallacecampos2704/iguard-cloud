@@ -517,6 +517,7 @@ export class DevicesService {
       const incident = await this.incidentsService.handleDeviceStatusChange(
         transaction,
         {
+          organizationId: device.organizationId,
           deviceId: device.id,
           previousStatus,
           currentStatus: result.status,

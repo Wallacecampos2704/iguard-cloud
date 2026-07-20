@@ -677,6 +677,7 @@ describe('DevicesService', () => {
       notifyStatusChange,
     } as unknown as NotificationService;
     type IncidentStatusChangeInput = {
+      organizationId: string;
       deviceId: string;
       previousStatus: DeviceStatus;
       currentStatus: DeviceStatus;
@@ -727,6 +728,7 @@ describe('DevicesService', () => {
     expect(createCheckResult).toHaveBeenCalledTimes(1);
     const incidentCall = handleDeviceStatusChange.mock.calls[0];
     expect(incidentCall[0]).toBe(transactionClient);
+    expect(incidentCall[1].organizationId).toBe(device.organizationId);
     expect(incidentCall[1].deviceId).toBe(device.id);
     expect(incidentCall[1].previousStatus).toBe(DeviceStatus.ONLINE);
     expect(incidentCall[1].currentStatus).toBe(DeviceStatus.OFFLINE);
@@ -922,5 +924,84 @@ describe('DevicesService', () => {
         process.env.TELEGRAM_CHAT_ID = previousChatId;
       }
     }
+  });
+
+  describe('ponte com IncidentsService', () => {
+    it('encaminha organizationId do device já validado para handleDeviceStatusChange', async () => {
+      const device = {
+        id: 'device-1',
+        organizationId: 'organization-1',
+        customerId: 'customer-1',
+        siteId: 'site-1',
+        name: 'Câmera',
+        host: 'camera.example.com',
+        port: null,
+        checkType: CheckType.HTTP,
+      };
+      const transactionClient = {
+        device: {
+          findUnique: jest
+            .fn()
+            .mockResolvedValue({ currentStatus: DeviceStatus.ONLINE }),
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        },
+        checkResult: {
+          create: jest.fn().mockResolvedValue({ id: 'check-1' }),
+        },
+      };
+      const transaction = jest.fn(
+        async (
+          callback: (client: typeof transactionClient) => Promise<unknown>,
+        ) => callback(transactionClient),
+      );
+      const handleDeviceStatusChange = jest.fn().mockResolvedValue(null);
+      const bridgeIncidentsService = {
+        handleDeviceStatusChange,
+      } as unknown as IncidentsService;
+      const scopedService = new DevicesService(
+        {
+          device: { findFirst: jest.fn().mockResolvedValue(device) },
+          $transaction: transaction,
+        } as unknown as PrismaService,
+        notificationService,
+        bridgeIncidentsService,
+      );
+      const performHttpCheck = jest.fn().mockResolvedValue({
+        status: DeviceStatus.ONLINE,
+        responseTimeMs: 10,
+        errorMessage: null,
+        rawPayload: {},
+      });
+      (
+        scopedService as unknown as {
+          performHttpCheck: typeof performHttpCheck;
+        }
+      ).performHttpCheck = performHttpCheck;
+
+      await scopedService.check('organization-1', device.id);
+
+      type BridgeInput = {
+        organizationId: string;
+        deviceId: string;
+        previousStatus: DeviceStatus;
+        currentStatus: DeviceStatus;
+        checkedAt: Date;
+        source: string;
+      };
+      const typedHandleDeviceStatusChange =
+        handleDeviceStatusChange as jest.Mock<
+          unknown,
+          [typeof transactionClient, BridgeInput]
+        >;
+      const [transactionArg, inputArg] =
+        typedHandleDeviceStatusChange.mock.calls[0];
+      expect(transactionArg).toBe(transactionClient);
+      expect(inputArg.organizationId).toBe(device.organizationId);
+      expect(inputArg.deviceId).toBe(device.id);
+      expect(inputArg.previousStatus).toBe(DeviceStatus.ONLINE);
+      expect(inputArg.currentStatus).toBe(DeviceStatus.ONLINE);
+      expect(inputArg.checkedAt).toBeInstanceOf(Date);
+      expect(inputArg.source).toBe('MANUAL');
+    });
   });
 });
