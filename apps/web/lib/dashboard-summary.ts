@@ -1,3 +1,5 @@
+import { authenticatedApiFetch } from "@/lib/api-auth";
+
 export interface DashboardSummary {
   totalDevices: number;
   devicesOnline: number;
@@ -22,8 +24,6 @@ export interface DashboardSummaryResult {
   data: DashboardSummary;
   hasError: boolean;
 }
-
-const DASHBOARD_SUMMARY_URL = `${process.env.API_URL ?? "http://localhost:4000"}/dashboard/summary`;
 
 export const emptyDashboardSummary: DashboardSummary = {
   totalDevices: 0,
@@ -51,9 +51,15 @@ function toNumber(value: unknown) {
 
 export async function getDashboardSummary(): Promise<DashboardSummaryResult> {
   try {
-    const response = await fetch(DASHBOARD_SUMMARY_URL, {
+    const result = await authenticatedApiFetch("/dashboard/summary", {
       cache: "no-store",
     });
+
+    if (!result.ok) {
+      return { data: emptyDashboardSummary, hasError: true };
+    }
+
+    const { response } = result;
 
     if (!response.ok) {
       return { data: emptyDashboardSummary, hasError: true };
