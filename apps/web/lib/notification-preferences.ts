@@ -1,4 +1,5 @@
 import "server-only";
+import { authenticatedApiFetch } from "@/lib/api-auth";
 
 export type NotificationPreferences = {
   id?: string;
@@ -23,8 +24,6 @@ export type NotificationPreferencesResult = {
   data: NotificationPreferences;
   hasError: boolean;
 };
-
-export const NOTIFICATION_PREFERENCES_URL = `${process.env.API_URL ?? "http://localhost:4000"}/notification-preferences`;
 
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   telegramEnabled: false,
@@ -117,9 +116,14 @@ function normalizePreferences(value: unknown): NotificationPreferences | null {
 
 export async function getNotificationPreferences(): Promise<NotificationPreferencesResult> {
   try {
-    const response = await fetch(NOTIFICATION_PREFERENCES_URL, {
+    const result = await authenticatedApiFetch("/notification-preferences", {
       cache: "no-store",
     });
+    if (!result.ok) {
+      return { data: DEFAULT_NOTIFICATION_PREFERENCES, hasError: true };
+    }
+
+    const { response } = result;
     if (!response.ok) {
       return { data: DEFAULT_NOTIFICATION_PREFERENCES, hasError: true };
     }

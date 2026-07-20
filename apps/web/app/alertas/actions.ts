@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { NOTIFICATION_PREFERENCES_URL } from "@/lib/notification-preferences";
+import { authenticatedApiFetch } from "@/lib/api-auth";
 
 export type AlertPreferencesActionState = {
   success: boolean;
@@ -79,11 +79,34 @@ export async function updateNotificationPreferences(
   };
 
   try {
-    const response = await fetch(NOTIFICATION_PREFERENCES_URL, {
+    const result = await authenticatedApiFetch("/notification-preferences", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
+
+    if (!result.ok) {
+      return {
+        success: false,
+        message: "Sua sessão expirou. Entre novamente.",
+      };
+    }
+
+    const { response } = result;
+
+    if (response.status === 401) {
+      return {
+        success: false,
+        message: "Sua sessão expirou. Entre novamente.",
+      };
+    }
+
+    if (response.status === 403) {
+      return {
+        success: false,
+        message: "Você não tem permissão para esta ação.",
+      };
+    }
 
     if (!response.ok) {
       const responsePayload = await response.json().catch(() => null);

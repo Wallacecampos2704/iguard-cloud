@@ -1,4 +1,5 @@
 import "server-only";
+import { authenticatedApiFetch } from "@/lib/api-auth";
 
 export type NotificationChannel =
   | "EMAIL"
@@ -92,8 +93,6 @@ export type NotificationDetailResult = {
   hasError: boolean;
 };
 
-export const NOTIFICATIONS_URL = `${process.env.API_URL ?? "http://localhost:4000"}/notifications`;
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -167,10 +166,14 @@ export async function getNotifications(
 
   try {
     const query = buildNotificationsQuery(filters);
-    const response = await fetch(`${NOTIFICATIONS_URL}?${query.toString()}`, {
+    const path: `/${string}` = `/notifications?${query.toString()}`;
+    const result = await authenticatedApiFetch(path, {
       cache: "no-store",
     });
 
+    if (!result.ok) return fallback;
+
+    const { response } = result;
     if (!response.ok) return fallback;
 
     const payload = (await response.json()) as unknown;
@@ -203,9 +206,12 @@ export async function getNotificationStats(): Promise<NotificationStatsResult> {
   };
 
   try {
-    const response = await fetch(`${NOTIFICATIONS_URL}/stats`, {
+    const result = await authenticatedApiFetch("/notifications/stats", {
       cache: "no-store",
     });
+    if (!result.ok) return fallback;
+
+    const { response } = result;
     if (!response.ok) return fallback;
 
     const payload = (await response.json()) as unknown;
@@ -228,10 +234,11 @@ export async function getNotification(
   id: string,
 ): Promise<NotificationDetailResult> {
   try {
-    const response = await fetch(
-      `${NOTIFICATIONS_URL}/${encodeURIComponent(id)}`,
-      { cache: "no-store" },
-    );
+    const path: `/${string}` = `/notifications/${encodeURIComponent(id)}`;
+    const result = await authenticatedApiFetch(path, { cache: "no-store" });
+    if (!result.ok) return { data: null, hasError: true };
+
+    const { response } = result;
     if (!response.ok) return { data: null, hasError: true };
 
     const payload = (await response.json()) as unknown;

@@ -1,12 +1,15 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { NOTIFICATIONS_URL } from "@/lib/notifications";
+import { authenticatedApiFetch } from "@/lib/api-auth";
 
 export type NotificationActionState = {
   success: boolean;
   message: string;
 };
+
+const SESSION_EXPIRED_MESSAGE = "Sua sessão expirou. Entre novamente.";
+const FORBIDDEN_MESSAGE = "Você não tem permissão para esta ação.";
 
 function getApiErrorMessage(payload: unknown, fallback: string) {
   if (typeof payload === "object" && payload !== null && "message" in payload) {
@@ -25,10 +28,22 @@ export async function retryNotification(
   void _previousState;
 
   try {
-    const response = await fetch(
-      `${NOTIFICATIONS_URL}/${encodeURIComponent(id)}/retry`,
-      { method: "POST" },
-    );
+    const path: `/${string}` = `/notifications/${encodeURIComponent(id)}/retry`;
+    const result = await authenticatedApiFetch(path, { method: "POST" });
+
+    if (!result.ok) {
+      return { success: false, message: SESSION_EXPIRED_MESSAGE };
+    }
+
+    const { response } = result;
+
+    if (response.status === 401) {
+      return { success: false, message: SESSION_EXPIRED_MESSAGE };
+    }
+
+    if (response.status === 403) {
+      return { success: false, message: FORBIDDEN_MESSAGE };
+    }
 
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
