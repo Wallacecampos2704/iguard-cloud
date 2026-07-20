@@ -1,5 +1,10 @@
-﻿import { Injectable } from '@nestjs/common';
-import { DeviceStatus, IncidentSeverity, IncidentStatus } from '@prisma/client';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  DeviceStatus,
+  IncidentSeverity,
+  IncidentStatus,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 const DASHBOARD_TIME_ZONE = 'America/Sao_Paulo';
@@ -65,8 +70,60 @@ function getStartOfTodayInSaoPaulo(now = new Date()) {
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getSummary() {
+  private requireOrganizationId(organizationId: string): string {
+    if (!organizationId || !organizationId.trim()) {
+      throw new BadRequestException('Organização inválida.');
+    }
+    return organizationId;
+  }
+
+  private buildSiteScope(organizationId: string): Prisma.SiteWhereInput {
+    return {
+      organizationId,
+      customer: { is: { organizationId } },
+    };
+  }
+
+  private buildDeviceScope(organizationId: string): Prisma.DeviceWhereInput {
+    return {
+      organizationId,
+      customer: { is: { organizationId } },
+      site: { is: { organizationId } },
+    };
+  }
+
+  private buildIncidentScope(
+    organizationId: string,
+  ): Prisma.IncidentWhereInput {
+    return {
+      organizationId,
+      AND: [
+        { OR: [{ deviceId: null }, { device: { is: { organizationId } } }] },
+        {
+          OR: [{ customerId: null }, { customer: { is: { organizationId } } }],
+        },
+        { OR: [{ siteId: null }, { site: { is: { organizationId } } }] },
+      ],
+    };
+  }
+
+  private buildCheckResultScope(
+    organizationId: string,
+  ): Prisma.CheckResultWhereInput {
+    return {
+      organizationId,
+      device: { is: { organizationId } },
+    };
+  }
+
+  async getSummary(organizationId: string) {
+    this.requireOrganizationId(organizationId);
+
     const startOfToday = getStartOfTodayInSaoPaulo();
+    const siteScope = this.buildSiteScope(organizationId);
+    const deviceScope = this.buildDeviceScope(organizationId);
+    const incidentScope = this.buildIncidentScope(organizationId);
+    const checkResultScope = this.buildCheckResultScope(organizationId);
 
     const [
       totalOrganizations,
@@ -85,24 +142,25 @@ export class DashboardService {
       resolvedIncidentsToday,
       resolvedIncidents,
     ] = await this.prisma.$transaction([
-      this.prisma.organization.count(),
-      this.prisma.customer.count(),
-      this.prisma.site.count(),
-      this.prisma.device.count(),
+      this.prisma.organization.count({ where: { id: organizationId } }),
+      this.prisma.customer.count({ where: { organizationId } }),
+      this.prisma.site.count({ where: siteScope }),
+      this.prisma.device.count({ where: deviceScope }),
       this.prisma.device.count({
-        where: { currentStatus: DeviceStatus.ONLINE },
+        where: { ...deviceScope, currentStatus: DeviceStatus.ONLINE },
       }),
       this.prisma.device.count({
-        where: { currentStatus: DeviceStatus.WARNING },
+        where: { ...deviceScope, currentStatus: DeviceStatus.WARNING },
       }),
       this.prisma.device.count({
-        where: { currentStatus: DeviceStatus.OFFLINE },
+        where: { ...deviceScope, currentStatus: DeviceStatus.OFFLINE },
       }),
       this.prisma.device.count({
-        where: { currentStatus: DeviceStatus.UNKNOWN },
+        where: { ...deviceScope, currentStatus: DeviceStatus.UNKNOWN },
       }),
       this.prisma.incident.count({
         where: {
+          ...incidentScope,
           status: {
             in: [IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED],
           },
@@ -110,18 +168,21 @@ export class DashboardService {
       }),
       this.prisma.incident.count({
         where: {
+          ...incidentScope,
           severity: IncidentSeverity.CRITICAL,
           status: {
             in: [IncidentStatus.OPEN, IncidentStatus.ACKNOWLEDGED],
           },
         },
       }),
-      this.prisma.notificationContact.count(),
+      this.prisma.notificationContact.count({ where: { organizationId } }),
       this.prisma.device.aggregate({
+        where: deviceScope,
         _max: { lastCheckedAt: true },
       }),
       this.prisma.checkResult.findFirst({
         where: {
+          ...checkResultScope,
           OR: [
             { source: { startsWith: 'BATCH:' } },
             { source: { startsWith: 'AUTOMATIC:' } },
@@ -132,12 +193,14 @@ export class DashboardService {
       }),
       this.prisma.incident.count({
         where: {
+          ...incidentScope,
           status: IncidentStatus.RESOLVED,
           resolvedAt: { gte: startOfToday },
         },
       }),
       this.prisma.incident.findMany({
         where: {
+          ...incidentScope,
           status: IncidentStatus.RESOLVED,
           resolvedAt: { not: null },
         },
@@ -147,7 +210,10 @@ export class DashboardService {
 
     const lastRunChecked = latestMonitoringRun
       ? await this.prisma.checkResult.count({
-          where: { source: latestMonitoringRun.source },
+          where: {
+            ...checkResultScope,
+            source: latestMonitoringRun.source,
+          },
         })
       : 0;
 
