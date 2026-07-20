@@ -150,6 +150,79 @@ export class NotificationService {
 
   constructor(@Optional() private readonly prisma?: PrismaService) {}
 
+  /**
+   * Única validação de organizationId para os métodos de usuário — não há
+   * fallback para "a primeira organização do banco": todo método iniciado
+   * por usuário exige o organizationId da sessão autenticada.
+   */
+  private requireOrganizationId(organizationId: string): string {
+    if (!organizationId || !organizationId.trim()) {
+      throw new BadRequestException('Organização inválida.');
+    }
+    return organizationId;
+  }
+
+  /**
+   * Escopo multi-tenant reutilizável para Notification. Além do
+   * organizationId direto, aplica defesa em profundidade nas relações
+   * opcionais (customer/site/device/incident): se a relação existir,
+   * precisa pertencer à mesma organização.
+   */
+  private buildNotificationScope(
+    organizationId: string,
+  ): Prisma.NotificationWhereInput {
+    return {
+      organizationId,
+      AND: [
+        {
+          OR: [{ customerId: null }, { customer: { is: { organizationId } } }],
+        },
+        { OR: [{ siteId: null }, { site: { is: { organizationId } } }] },
+        { OR: [{ deviceId: null }, { device: { is: { organizationId } } }] },
+        {
+          OR: [{ incidentId: null }, { incident: { is: { organizationId } } }],
+        },
+      ],
+    };
+  }
+
+  private async validateCustomerForOrganization(
+    organizationId: string,
+    customerId: string | null,
+  ): Promise<void> {
+    if (!customerId) return;
+    const customer = await this.requirePrisma().customer.findFirst({
+      where: { id: customerId, organizationId },
+      select: { id: true },
+    });
+    if (!customer) {
+      throw new BadRequestException(
+        'Cliente não encontrado para a organização informada.',
+      );
+    }
+  }
+
+  private async validateDeviceForOrganization(
+    organizationId: string,
+    deviceId: string | null,
+  ): Promise<void> {
+    if (!deviceId) return;
+    const device = await this.requirePrisma().device.findFirst({
+      where: {
+        id: deviceId,
+        organizationId,
+        customer: { is: { organizationId } },
+        site: { is: { organizationId } },
+      },
+      select: { id: true },
+    });
+    if (!device) {
+      throw new BadRequestException(
+        'Equipamento não encontrado para a organização informada.',
+      );
+    }
+  }
+
   async notifyStatusChange(
     alert: StatusChangeAlert,
   ): Promise<NotificationDispatchResult | null> {
@@ -174,7 +247,9 @@ export class NotificationService {
     return this.dispatch(context);
   }
 
-  async sendTest(organizationId?: string) {
+  async sendTest(organizationId: string) {
+    const resolvedOrganizationId = this.requireOrganizationId(organizationId);
+
     if (!this.prisma) {
       const result = await this.dispatchWithoutPersistence(
         `Teste de alerta iGuard em ${new Date().toISOString()}`,
@@ -182,8 +257,6 @@ export class NotificationService {
       return this.testResponse(result);
     }
 
-    const resolvedOrganizationId =
-      await this.resolveOrganizationId(organizationId);
     const now = new Date();
     const result = await this.dispatch({
       organizationId: resolvedOrganizationId,
@@ -200,9 +273,9 @@ export class NotificationService {
     return this.testResponse(result);
   }
 
-  async findAll(query: NotificationListQuery = {}) {
+  async findAll(organizationId: string, query: NotificationListQuery = {}) {
+    this.requireOrganizationId(organizationId);
     const prisma = this.requirePrisma();
-    const organizationId = await this.resolveOrganizationId();
     const customerId = this.validateOptionalIdentifier(
       query.customerId,
       'customerId',
@@ -211,6 +284,9 @@ export class NotificationService {
       query.deviceId,
       'deviceId',
     );
+    await this.validateCustomerForOrganization(organizationId, customerId);
+    await this.validateDeviceForOrganization(organizationId, deviceId);
+
     const page = this.parseInteger(query.page, 1, 1, 1_000_000, 'page');
     const pageSize = this.parseInteger(query.pageSize, 20, 1, 100, 'pageSize');
     const dateFrom = this.parseDate(query.dateFrom, 'dateFrom');
@@ -222,7 +298,7 @@ export class NotificationService {
     }
 
     const where: Prisma.NotificationWhereInput = {
-      organizationId,
+      ...this.buildNotificationScope(organizationId),
       ...(customerId ? { customerId } : {}),
       ...(deviceId ? { deviceId } : {}),
       ...(query.status
@@ -272,13 +348,22 @@ export class NotificationService {
     };
   }
 
-  async getStats(customerId?: string) {
+  async getStats(organizationId: string, customerId?: string) {
+    this.requireOrganizationId(organizationId);
     const prisma = this.requirePrisma();
-    const organizationId = await this.resolveOrganizationId();
-    const scope = {
-      ...(organizationId ? { organizationId } : {}),
-      ...(customerId ? { customerId } : {}),
-    } satisfies Prisma.NotificationWhereInput;
+    const validatedCustomerId = this.validateOptionalIdentifier(
+      customerId,
+      'customerId',
+    );
+    await this.validateCustomerForOrganization(
+      organizationId,
+      validatedCustomerId,
+    );
+
+    const scope: Prisma.NotificationWhereInput = {
+      ...this.buildNotificationScope(organizationId),
+      ...(validatedCustomerId ? { customerId: validatedCustomerId } : {}),
+    };
     const today = this.startOfTodayInSaoPaulo();
 
     const [total, sent, failed, skipped, sentToday] = await Promise.all([
@@ -304,10 +389,10 @@ export class NotificationService {
     return { total, sent, failed, skipped, sentToday };
   }
 
-  async findOne(id: string) {
-    const organizationId = await this.resolveOrganizationId();
+  async findOne(organizationId: string, id: string) {
+    this.requireOrganizationId(organizationId);
     const notification = await this.requirePrisma().notification.findFirst({
-      where: { id, organizationId },
+      where: { ...this.buildNotificationScope(organizationId), id },
       select: PUBLIC_NOTIFICATION_SELECT,
     });
     if (!notification) {
@@ -316,11 +401,13 @@ export class NotificationService {
     return this.toPublicNotification(notification);
   }
 
-  async retry(id: string) {
+  async retry(organizationId: string, id: string) {
+    this.requireOrganizationId(organizationId);
     const prisma = this.requirePrisma();
-    const organizationId = await this.resolveOrganizationId();
+    const scope = this.buildNotificationScope(organizationId);
+
     const notification = await prisma.notification.findFirst({
-      where: { id, organizationId },
+      where: { ...scope, id },
     });
     if (!notification) {
       throw new NotFoundException('Notificação não encontrada.');
@@ -332,7 +419,7 @@ export class NotificationService {
     }
 
     const reserved = await prisma.notification.updateMany({
-      where: { id, status: NotificationStatus.FAILED },
+      where: { ...scope, id, status: NotificationStatus.FAILED },
       data: {
         status: NotificationStatus.PENDING,
         attemptCount: { increment: 1 },
@@ -347,8 +434,9 @@ export class NotificationService {
       notification.channel,
       notification.message,
     );
-    await prisma.notification.update({
-      where: { id },
+
+    const finished = await prisma.notification.updateMany({
+      where: { ...scope, id, status: NotificationStatus.PENDING },
       data: {
         status: result.status,
         providerMessageId: result.providerMessageId,
@@ -356,26 +444,34 @@ export class NotificationService {
         sentAt: result.status === NotificationStatus.SENT ? new Date() : null,
       },
     });
+    if (finished.count !== 1) {
+      throw new ConflictException(
+        'Não foi possível concluir o reenvio da notificação.',
+      );
+    }
 
-    return this.findOne(id);
+    return this.findOne(organizationId, id);
   }
 
-  async getPreferences(organizationId?: string, customerId?: string) {
+  async getPreferences(organizationId: string, customerId?: string) {
+    this.requireOrganizationId(organizationId);
     const validatedCustomerId = this.validateOptionalIdentifier(
       customerId,
       'customerId',
     );
-    const resolvedOrganizationId =
-      await this.resolveOrganizationId(organizationId);
+    await this.validateCustomerForOrganization(
+      organizationId,
+      validatedCustomerId,
+    );
     const preference = await this.findStoredPreference(
-      resolvedOrganizationId,
+      organizationId,
       validatedCustomerId,
     );
 
     return (
       preference ?? {
         id: null,
-        organizationId: resolvedOrganizationId,
+        organizationId,
         customerId: validatedCustomerId,
         ...this.defaultPreference(),
         createdAt: null,
@@ -384,25 +480,18 @@ export class NotificationService {
     );
   }
 
-  async updatePreferences(input: NotificationPreferenceInput) {
+  async updatePreferences(
+    organizationId: string,
+    input: NotificationPreferenceInput,
+  ) {
+    this.requireOrganizationId(organizationId);
     const prisma = this.requirePrisma();
     this.validatePreferenceInputTypes(input);
-    const organizationId = await this.resolveOrganizationId(undefined);
     const customerId = this.validateOptionalIdentifier(
       input.customerId,
       'customerId',
     );
-    if (customerId) {
-      const customer = await prisma.customer.findFirst({
-        where: { id: customerId, organizationId },
-        select: { id: true },
-      });
-      if (!customer) {
-        throw new BadRequestException(
-          'Cliente não encontrado para a organização informada.',
-        );
-      }
-    }
+    await this.validateCustomerForOrganization(organizationId, customerId);
 
     const current = await this.findStoredPreference(organizationId, customerId);
     const data = this.validatePreference({
@@ -411,19 +500,34 @@ export class NotificationService {
       ...input,
     });
 
-    if (customerId) {
-      return prisma.notificationPreference.upsert({
-        where: { customerId },
-        create: { organizationId, customerId, ...data },
-        update: data,
-      });
+    if (current) {
+      return this.updatePreferenceById(
+        organizationId,
+        customerId,
+        current.id,
+        data,
+      );
     }
 
-    if (current) {
-      return prisma.notificationPreference.update({
-        where: { id: current.id },
-        data,
-      });
+    if (customerId) {
+      try {
+        return await prisma.notificationPreference.create({
+          data: { organizationId, customerId, ...data },
+        });
+      } catch (error) {
+        if (!this.isUniqueViolation(error)) throw error;
+        const concurrent = await this.findStoredPreference(
+          organizationId,
+          customerId,
+        );
+        if (!concurrent) throw error;
+        return this.updatePreferenceById(
+          organizationId,
+          customerId,
+          concurrent.id,
+          data,
+        );
+      }
     }
 
     if (typeof input.timezone !== 'string' || !input.timezone.trim()) {
@@ -437,11 +541,49 @@ export class NotificationService {
       if (!this.isUniqueViolation(error)) throw error;
       const concurrent = await this.findStoredPreference(organizationId, null);
       if (!concurrent) throw error;
-      return prisma.notificationPreference.update({
-        where: { id: concurrent.id },
+      return this.updatePreferenceById(
+        organizationId,
+        null,
+        concurrent.id,
         data,
-      });
+      );
     }
+  }
+
+  /**
+   * Atualiza uma preferência já localizada (id conhecido) sempre revalidando
+   * organizationId (e a relação Customer, quando aplicável) no próprio
+   * updateMany — nunca `update({ where: { id } })` isolado — e relê o
+   * registro escopado para devolver o contrato atual.
+   */
+  private async updatePreferenceById(
+    organizationId: string,
+    customerId: string | null,
+    preferenceId: string,
+    data: EffectivePreference,
+  ) {
+    const prisma = this.requirePrisma();
+    const updated = await prisma.notificationPreference.updateMany({
+      where: {
+        id: preferenceId,
+        organizationId,
+        ...(customerId ? { customer: { is: { organizationId } } } : {}),
+      },
+      data,
+    });
+    if (updated.count !== 1) {
+      throw new ConflictException(
+        'Não foi possível atualizar as preferências.',
+      );
+    }
+    const refreshed = await this.findStoredPreference(
+      organizationId,
+      customerId,
+    );
+    if (!refreshed) {
+      throw new NotFoundException('Preferência não encontrada.');
+    }
+    return refreshed;
   }
 
   private async dispatch(
@@ -476,9 +618,11 @@ export class NotificationService {
         : `${context.deviceId ?? 'unknown'}:${context.type}:${context.occurredAt.toISOString()}`;
 
     if (deduplicationKey) {
-      const existing = await prisma.notification.findUnique({
+      const existing = await prisma.notification.findFirst({
         where: {
-          channel_deduplicationKey: { channel, deduplicationKey },
+          ...this.buildNotificationScope(context.organizationId),
+          channel,
+          deduplicationKey,
         },
         select: { status: true },
       });
@@ -575,12 +719,14 @@ export class NotificationService {
     } catch (error) {
       if (!input.deduplicationKey || !this.isUniqueViolation(error))
         throw error;
-      const existing = await prisma.notification.findUnique({
+      // Falha fechada: a releitura é escopada pela organização, então um
+      // P2002 causado por um registro de outro tenant nunca é devolvido
+      // como se fosse a notificação deduplicada do chamador atual.
+      const existing = await prisma.notification.findFirst({
         where: {
-          channel_deduplicationKey: {
-            channel: input.channel,
-            deduplicationKey: input.deduplicationKey,
-          },
+          ...this.buildNotificationScope(input.organizationId),
+          channel: input.channel,
+          deduplicationKey: input.deduplicationKey,
         },
         select: { id: true, status: true },
       });
@@ -627,7 +773,7 @@ export class NotificationService {
       );
       const recent = await this.requirePrisma().notification.findFirst({
         where: {
-          organizationId: context.organizationId,
+          ...this.buildNotificationScope(context.organizationId),
           customerId: context.customerId,
           deviceId: context.deviceId,
           channel,
@@ -797,14 +943,13 @@ export class NotificationService {
   ) {
     const prisma = this.requirePrisma();
     if (customerId) {
-      const customerPreference = await prisma.notificationPreference.findUnique(
-        {
-          where: { customerId },
+      return prisma.notificationPreference.findFirst({
+        where: {
+          organizationId,
+          customerId,
+          customer: { is: { organizationId } },
         },
-      );
-      if (customerPreference?.organizationId === organizationId) {
-        return customerPreference;
-      }
+      });
     }
     return prisma.notificationPreference.findFirst({
       where: { organizationId, customerId: null },
@@ -1133,23 +1278,6 @@ export class NotificationService {
         ? error.code
         : (error as { code?: string } | null)?.code) === 'P2002'
     );
-  }
-
-  private async resolveOrganizationId(organizationId?: string) {
-    const prisma = this.requirePrisma();
-    const organization = organizationId
-      ? await prisma.organization.findUnique({
-          where: { id: organizationId },
-          select: { id: true },
-        })
-      : await prisma.organization.findFirst({
-          orderBy: { createdAt: 'asc' },
-          select: { id: true },
-        });
-    if (!organization) {
-      throw new BadRequestException('Nenhuma organização disponível.');
-    }
-    return organization.id;
   }
 
   private requirePrisma() {

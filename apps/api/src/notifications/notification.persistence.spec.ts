@@ -61,25 +61,39 @@ const makeAlert = (
   ...overrides,
 });
 
+function notificationScope(organizationId: string) {
+  return {
+    organizationId,
+    AND: [
+      {
+        OR: [{ customerId: null }, { customer: { is: { organizationId } } }],
+      },
+      { OR: [{ siteId: null }, { site: { is: { organizationId } } }] },
+      { OR: [{ deviceId: null }, { device: { is: { organizationId } } }] },
+      {
+        OR: [{ incidentId: null }, { incident: { is: { organizationId } } }],
+      },
+    ],
+  };
+}
+
 function createPersistenceMock() {
   const records = new Map<string, StoredNotification>();
   let sequence = 0;
   const keyFor = (channel: NotificationChannel, deduplicationKey: string) =>
     `${channel}:${deduplicationKey}`;
 
-  const notificationFindUnique = jest.fn(
+  const notificationFindFirst = jest.fn(
     (args: {
       where: {
-        channel_deduplicationKey?: {
-          channel: NotificationChannel;
-          deduplicationKey: string;
-        };
+        channel?: NotificationChannel;
+        deduplicationKey?: string | null;
       };
     }) => {
-      const key = args.where.channel_deduplicationKey;
-      if (!key) return Promise.resolve(null);
+      const { channel, deduplicationKey } = args.where;
+      if (!channel || !deduplicationKey) return Promise.resolve(null);
       return Promise.resolve(
-        records.get(keyFor(key.channel, key.deduplicationKey)) ?? null,
+        records.get(keyFor(channel, deduplicationKey)) ?? null,
       );
     },
   );
@@ -112,8 +126,7 @@ function createPersistenceMock() {
       findFirst: jest.fn().mockResolvedValue(null),
     },
     notification: {
-      findUnique: notificationFindUnique,
-      findFirst: jest.fn().mockResolvedValue(null),
+      findFirst: notificationFindFirst,
       create: notificationCreate,
       update: notificationUpdate,
     },
@@ -256,19 +269,14 @@ describe('NotificationService persistence and deduplication', () => {
     process.env.TELEGRAM_CHAT_ID = 'chat-id';
     const fetchMock = jest.spyOn(global, 'fetch');
     let telegramLookup = 0;
-    const notificationFindUnique = jest.fn(
-      (args: {
-        where: {
-          channel_deduplicationKey: { channel: NotificationChannel };
-        };
-      }) => {
-        if (
-          args.where.channel_deduplicationKey.channel ===
-          NotificationChannel.TELEGRAM
-        ) {
+    const notificationFindFirst = jest.fn(
+      (args: { where: { channel?: NotificationChannel } }) => {
+        if (args.where.channel === NotificationChannel.TELEGRAM) {
           telegramLookup += 1;
           return Promise.resolve(
-            telegramLookup > 1 ? { status: NotificationStatus.SENT } : null,
+            telegramLookup > 1
+              ? { id: 'telegram-1', status: NotificationStatus.SENT }
+              : null,
           );
         }
         return Promise.resolve(null);
@@ -291,8 +299,7 @@ describe('NotificationService persistence and deduplication', () => {
         findFirst: jest.fn().mockResolvedValue(null),
       },
       notification: {
-        findUnique: notificationFindUnique,
-        findFirst: jest.fn().mockResolvedValue(null),
+        findFirst: notificationFindFirst,
         create: notificationCreate,
       },
     } as unknown as PrismaService);
@@ -304,7 +311,7 @@ describe('NotificationService persistence and deduplication', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('reserva retry de FAILED atomicamente e rejeita outros status', async () => {
+  it('reserva retry de FAILED atomicamente, escopado pela organização, e rejeita outros status', async () => {
     process.env.TELEGRAM_BOT_TOKEN = 'bot-token';
     process.env.TELEGRAM_CHAT_ID = 'chat-id';
     jest
@@ -344,41 +351,57 @@ describe('NotificationService persistence and deduplication', () => {
           : raw,
       ),
     );
-    const update = jest.fn((args: { data: { status: NotificationStatus } }) => {
-      raw.status = args.data.status;
-      return Promise.resolve(raw);
+    const updateMany = jest.fn((args: { data: Record<string, unknown> }) => {
+      Object.assign(raw, args.data);
+      return Promise.resolve({ count: 1 });
     });
-    const updateMany = jest.fn().mockResolvedValue({ count: 1 });
     const service = new NotificationService({
-      organization: {
-        findFirst: jest.fn().mockResolvedValue({ id: 'organization-1' }),
-      },
-      notification: { findFirst, updateMany, update },
+      notification: { findFirst, updateMany },
     } as unknown as PrismaService);
 
-    await expect(service.retry('notification-1')).resolves.toEqual(
+    await expect(
+      service.retry('organization-1', 'notification-1'),
+    ).resolves.toEqual(
       expect.objectContaining({ status: NotificationStatus.SENT }),
     );
-    expect(updateMany).toHaveBeenCalledWith({
-      where: { id: 'notification-1', status: NotificationStatus.FAILED },
-      data: {
-        status: NotificationStatus.PENDING,
-        attemptCount: { increment: 1 },
-        errorMessage: null,
-      },
+
+    const typedUpdateMany = updateMany as jest.Mock<
+      unknown,
+      [
+        {
+          where: Record<string, unknown>;
+          data: Record<string, unknown>;
+        },
+      ]
+    >;
+    const reserveArgs = typedUpdateMany.mock.calls[0][0];
+    expect(reserveArgs.where).toEqual({
+      ...notificationScope('organization-1'),
+      id: 'notification-1',
+      status: NotificationStatus.FAILED,
+    });
+    expect(reserveArgs.data).toEqual({
+      status: NotificationStatus.PENDING,
+      attemptCount: { increment: 1 },
+      errorMessage: null,
     });
 
+    const finishArgs = typedUpdateMany.mock.calls[1][0];
+    expect(finishArgs.where).toEqual({
+      ...notificationScope('organization-1'),
+      id: 'notification-1',
+      status: NotificationStatus.PENDING,
+    });
+    expect(finishArgs.data.status).toBe(NotificationStatus.SENT);
+
     raw.status = NotificationStatus.SENT;
-    await expect(service.retry('notification-1')).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(
+      service.retry('organization-1', 'notification-1'),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('retorna conflito quando outro retry já reservou a notificação', async () => {
     const service = new NotificationService({
-      organization: {
-        findFirst: jest.fn().mockResolvedValue({ id: 'organization-1' }),
-      },
       notification: {
         findFirst: jest.fn().mockResolvedValue({
           id: 'notification-1',
@@ -388,27 +411,24 @@ describe('NotificationService persistence and deduplication', () => {
       },
     } as unknown as PrismaService);
 
-    await expect(service.retry('notification-1')).rejects.toBeInstanceOf(
-      ConflictException,
-    );
+    await expect(
+      service.retry('organization-1', 'notification-1'),
+    ).rejects.toBeInstanceOf(ConflictException);
   });
 
   it('rejeita tipos inválidos nas preferências antes de consultar o cliente', async () => {
     const customerFindFirst = jest.fn();
     const service = new NotificationService({
-      organization: {
-        findFirst: jest.fn().mockResolvedValue({ id: 'organization-1' }),
-      },
       customer: { findFirst: customerFindFirst },
     } as unknown as PrismaService);
 
     await expect(
-      service.updatePreferences({
+      service.updatePreferences('organization-1', {
         customerId: 123 as unknown as string,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
     await expect(
-      service.updatePreferences({
+      service.updatePreferences('organization-1', {
         telegramEnabled: 'false' as unknown as boolean,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
